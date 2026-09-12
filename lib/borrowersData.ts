@@ -53,3 +53,38 @@ export const BASE_43_BORROWERS: BorrowerProfile[] = [
   { id: 42, name: 'Sunita Baghel', phone: '+91 98110 11042', area: 'Ganga Vihar', idType: 'Aadhaar', idNum: '4123 8812 1042', guarantor: 'Devraj Baghel (Spouse)' },
   { id: 43, name: 'Kamal Kishore', phone: '+91 98110 11043', area: 'Railway Colony', idType: 'Aadhaar', idNum: '4123 8812 1043', guarantor: 'Shyam Kishore (Brother)' },
 ];
+
+// Dynamically generated extended pool for long-horizon simulations (60, 120 months)
+export const ALL_BORROWERS: BorrowerProfile[] = [
+  ...BASE_43_BORROWERS,
+  ...Array.from({ length: 157 }, (_, i) => {
+    const id = 44 + i;
+    const names = ['Vikram Rathore', 'Sangeeta Soni', 'Prakash Meena', 'Anita Rawat', 'Kailash Jain', 'Sunil Verma', 'Reena Gupta', 'Lalit Sharma', 'Pooja Tiwari', 'Rakesh Yadav'];
+    const areas = ['Shastri Circle', 'New Sanganer Rd', 'Tonk Phatak', 'Mansarovar Sec 7', 'Ajmer Road', 'Khatipura', 'Jhotwara', 'C-Scheme'];
+    const name = `${names[i % names.length]} (${id})`;
+    const area = areas[i % areas.length];
+    return {
+      id,
+      name,
+      phone: `+91 98110 ${String(11000 + id).slice(-5)}`,
+      area,
+      idType: 'Aadhaar',
+      idNum: `4123 8812 ${String(1000 + id).slice(-4)}`,
+      guarantor: `Guarantor for #${id}`,
+    };
+  }),
+];
+
+export function getBorrowerById(id: number): BorrowerProfile {
+  const found = ALL_BORROWERS.find((b) => b.id === id);
+  if (found) return found;
+  return {
+    id,
+    name: `Borrower #${id}`,
+    phone: `+91 98110 ${String(11000 + id).slice(-5)}`,
+    area: 'Branch Area',
+    idType: 'Aadhaar',
+    idNum: `4123 8812 ${String(1000 + id).slice(-4)}`,
+    guarantor: 'Verified Guarantor',
+  };
+}

@@ -36,7 +36,7 @@ import {
   CalendarCheck
 } from 'lucide-react';
 import { generateSimulationData, SimulationMonthData, MonthRefinanceConfig } from '@/lib/simulation';
-import { BASE_43_BORROWERS, BorrowerProfile } from '@/lib/borrowersData';
+import { BASE_43_BORROWERS, ALL_BORROWERS, getBorrowerById, BorrowerProfile } from '@/lib/borrowersData';
 import { formatCurrency } from '@/lib/utils';
 import { PaymentContext } from '@/components/AppLayout';
 
@@ -67,8 +67,9 @@ export default function ViewModelPage() {
   const [isBorrowerModalOpen, setIsBorrowerModalOpen] = useState(false);
   const [borrowerSearchQuery, setBorrowerSearchQuery] = useState('');
 
-  // Stepper State
-  const [currentMonthIndex, setCurrentMonthIndex] = useState(1); // 1 to 30
+  // Stepper State & Simulation Horizon (Dynamic: 30, 48, 60, 120+ months)
+  const [totalSimulationMonths, setTotalSimulationMonths] = useState(60);
+  const [currentMonthIndex, setCurrentMonthIndex] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [tableDisplayMode, setTableDisplayMode] = useState<'stepper' | 'all'>('stepper');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -122,7 +123,7 @@ export default function ViewModelPage() {
       }
     });
 
-    const available = BASE_43_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
+    const available = ALL_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
     const chosen = available.slice(0, count).map((b) => b.id);
     setMonthlyBorrowersMap((prev) => ({
       ...prev,
@@ -139,7 +140,7 @@ export default function ViewModelPage() {
       }
     });
 
-    const available = BASE_43_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
+    const available = ALL_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
     const safeCount = Math.max(0, Math.min(available.length, targetCount));
     const chosen = available.slice(0, safeCount).map((b) => b.id);
     setMonthlyBorrowersMap((prev) => ({
@@ -157,7 +158,7 @@ export default function ViewModelPage() {
       }
     });
 
-    const available = BASE_43_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
+    const available = ALL_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
     const chosen = available.slice(0, count).map((b) => b.id);
     setMonthlyBorrowersMap((prev) => ({
       ...prev,
@@ -208,7 +209,7 @@ export default function ViewModelPage() {
       fileCharge,
       monthlyEmi,
       tenureMonths: 20,
-      totalMonths: 30,
+      totalMonths: totalSimulationMonths,
       reinvestFileCharges,
       refinanceEnabled,
       monthlyRefinances,
@@ -225,6 +226,7 @@ export default function ViewModelPage() {
     refinanceFileCharge,
     refinanceMonthlyEmi,
     refinanceTenureMonths,
+    totalSimulationMonths,
   ]);
 
   // Current active month data
@@ -258,12 +260,14 @@ export default function ViewModelPage() {
   }, [isPlaying, simulationData.length, configuredRefinanceMonths]);
 
   const handleNextMonth = () => {
-    if (currentMonthIndex < simulationData.length) {
-      const nextM = currentMonthIndex + 1;
-      setCurrentMonthIndex(nextM);
-      if (nextM >= 16) {
-        setActiveConfigMonth(nextM);
-      }
+    if (currentMonthIndex >= totalSimulationMonths) {
+      // Auto-extend by 12 months so the user can continue indefinitely!
+      setTotalSimulationMonths((prev) => prev + 12);
+    }
+    const nextM = currentMonthIndex + 1;
+    setCurrentMonthIndex(nextM);
+    if (nextM >= 16) {
+      setActiveConfigMonth(nextM);
     }
   };
 
@@ -304,7 +308,7 @@ export default function ViewModelPage() {
   const activeBudgetDeficitAmount = Math.max(0, activeTotalRefinanceCashRequired - activeTargetAvailablePool);
 
   // Filter borrowers in search modal
-  const filteredBorrowers = BASE_43_BORROWERS.filter((b) => 
+  const filteredBorrowers = ALL_BORROWERS.filter((b) => 
     b.name.toLowerCase().includes(borrowerSearchQuery.toLowerCase()) ||
     b.phone.includes(borrowerSearchQuery) ||
     b.area.toLowerCase().includes(borrowerSearchQuery.toLowerCase())
@@ -548,14 +552,17 @@ export default function ViewModelPage() {
               <span>Month {activeConfigMonth} Setup</span>
             </button>
 
-            {/* Next Month Button (Hero CTA) */}
+            {/* Next Month Button (Hero CTA - Never stops, auto extends) */}
             <button
               onClick={handleNextMonth}
-              disabled={currentMonthIndex >= simulationData.length}
-              className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-30 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-900/40 flex items-center gap-2 transition active:scale-95 animate-pulse"
+              className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-900/40 flex items-center gap-2 transition active:scale-95"
+              title={currentMonthIndex >= totalSimulationMonths ? "Timeline limit reach; clicking will auto-extend timeline by +12 months" : "Step forward 1 month"}
             >
               <span>Next Month (+1 Month)</span>
-              <Play className="h-3.5 w-3.5 fill-current" />
+              {currentMonthIndex >= totalSimulationMonths && (
+                <span className="px-1.5 py-0.5 bg-slate-950 text-emerald-300 rounded text-[10px] font-black">+12 Mo</span>
+              )}
+              <ChevronRight className="h-4 w-4" />
             </button>
 
             {/* Auto-Play Toggle */}
@@ -582,20 +589,55 @@ export default function ViewModelPage() {
           </div>
         </div>
 
-        {/* Timeline Progress Scrubber */}
-        <div className="mt-6 pt-4 border-t border-slate-800/80">
-          <div className="flex justify-between items-center text-xs font-semibold text-slate-400 mb-2">
-            <span>Month 1 (Base 43)</span>
-            <span className="text-amber-300 font-bold">
-              Refinance: {configuredRefinanceMonths.map((m) => `M${m}`).join(', ')}
+        {/* Timeline Progress Scrubber with Horizon Switcher */}
+        <div className="mt-6 pt-4 border-t border-slate-800/80 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-semibold text-slate-400">
+            <div className="flex flex-wrap items-center gap-2">
+              <span>Month 1 (Base 43)</span>
+              <span className="text-amber-300 font-bold">
+                Refinance: {configuredRefinanceMonths.map((m) => `M${m}`).join(', ')}
+              </span>
+            </div>
+
+            {/* Quick Timeline Length Horizon Switcher */}
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-800/90 p-1 rounded-xl border border-slate-700">
+              <span className="text-[10px] uppercase font-bold text-slate-400 px-1.5">Timeline Horizon:</span>
+              {[30, 48, 60, 120].map((months) => (
+                <button
+                  key={months}
+                  type="button"
+                  onClick={() => {
+                    setTotalSimulationMonths(months);
+                    if (currentMonthIndex > months) setCurrentMonthIndex(months);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-black transition ${
+                    totalSimulationMonths === months
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-700'
+                  }`}
+                >
+                  {months} Mo {months >= 60 ? `(${months / 12} Yrs)` : ''}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setTotalSimulationMonths((prev) => prev + 12)}
+                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-black transition"
+                title="Add 12 more months to simulation"
+              >
+                +12 Mo
+              </button>
+            </div>
+
+            <span className="text-indigo-300 font-bold">
+              Month {currentMonthIndex} of {totalSimulationMonths}
             </span>
-            <span className="text-indigo-300 font-bold">Month {currentMonthIndex} of {simulationData.length}</span>
-            <span>Month 30 (Cycle End)</span>
           </div>
+
           <input
             type="range"
             min="1"
-            max={simulationData.length}
+            max={totalSimulationMonths}
             value={currentMonthIndex}
             onChange={(e) => {
               setIsPlaying(false);
@@ -668,13 +710,16 @@ export default function ViewModelPage() {
               })}
             </div>
 
-            {/* Quick Add Next Months (+ M16, + M17, + M18, + M19, + M20) */}
+            {/* Quick Add Next Months */}
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-400 uppercase">+ Add Month:</span>
-              {[16, 17, 18, 19, 20].map((m) => {
-                const isAlreadyConfigured = configuredRefinanceMonths.includes(m);
-                if (isAlreadyConfigured) return null;
-                return (
+              {Array.from(new Set([
+                currentMonthIndex >= 16 ? currentMonthIndex : null,
+                16, 17, 18, 19, 20, 24, 30, 36, 48
+              ]))
+                .filter((m): m is number => m !== null && m <= totalSimulationMonths && !configuredRefinanceMonths.includes(m))
+                .slice(0, 8)
+                .map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -685,8 +730,7 @@ export default function ViewModelPage() {
                     <Plus className="h-3 w-3" />
                     <span>M{m}</span>
                   </button>
-                );
-              })}
+                ))}
             </div>
           </div>
 
@@ -949,7 +993,7 @@ export default function ViewModelPage() {
             {activeSelectedBorrowerIds.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
                 {activeSelectedBorrowerIds.map((bId) => {
-                  const borrower = BASE_43_BORROWERS.find((b) => b.id === bId);
+                  const borrower = getBorrowerById(bId);
                   if (!borrower) return null;
 
                   return (
@@ -1407,12 +1451,12 @@ export default function ViewModelPage() {
             <p className="text-xs text-slate-500 mt-0.5">
               {tableDisplayMode === 'stepper'
                 ? `Showing Month 1 to ${currentMonthIndex} (Step-by-Step View). Click Next Month (+1 Month) to reveal next month.`
-                : 'Showing all 30 months full cycle ledger projection.'}
+                : `Showing all ${totalSimulationMonths} months full cycle ledger projection.`}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
-            {/* View Mode Toggle: Stepper (1 month at a time) vs All 30 Months */}
+            {/* View Mode Toggle: Stepper (1 month at a time) vs All Months */}
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
               <button
                 type="button"
@@ -1434,7 +1478,7 @@ export default function ViewModelPage() {
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Show All 30 Months
+                Show All {totalSimulationMonths} Months
               </button>
             </div>
 
