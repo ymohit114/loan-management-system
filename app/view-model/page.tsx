@@ -389,20 +389,60 @@ export default function ViewModelPage() {
           <div className="text-xs text-slate-300 flex flex-wrap items-center gap-2">
             <span>Portfolio: <strong>{currentMonthData.activePayingLoans} Active Borrowers</strong></span>
             <span>•</span>
-            <span className="text-amber-300 font-bold">Capital Deployed: {formatCurrency(currentMonthData.activePayingLoans * loanPrincipal, currency)}</span>
+            <span className="text-amber-300 font-bold">Capital Deployed: {formatCurrency(currentMonthData.activeCapitalDeployed, currency)}</span>
+            <span>•</span>
+            <span className="text-emerald-300 font-bold">Market Book: {formatCurrency(currentMonthData.marketOutstandingCash, currency)}</span>
           </div>
         </div>
 
-        {/* Dual Hero Big Cards: Available Fund VS Kitne Rs Bach Rahe Hain */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Card 1: Market Me Available Cash Pool */}
+        {/* 3 Prominent Hero Cards:
+            Card 1: Market Me Total Cash Kitna Reh Raha Hai (Market Outstanding Book)
+            Card 2: Is Month Available Disbursal Pool (Available Cash)
+            Card 3: Bank / Tijori Me Bacha Liquid Cash (Net Surplus) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Card 1: Market Me Total Cash Kitna Reh Raha Hai */}
+          <div className="p-4 sm:p-5 bg-gradient-to-br from-amber-500/15 via-white/5 to-amber-500/5 border-2 border-amber-400/60 rounded-2xl relative overflow-hidden shadow-lg transition group">
+            <div className="absolute -right-4 -bottom-4 w-28 h-28 bg-amber-500/15 rounded-full blur-2xl pointer-events-none" />
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                  <Coins className="h-4 w-4 text-amber-400" />
+                  Market Me Total Cash Kitna Reh Raha Hai
+                </span>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Sabhi active loans se aane wala kul future EMI cash:
+                </p>
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/30 text-amber-200 px-2.5 py-0.5 rounded-md border border-amber-400/50">
+                Market Book
+              </span>
+            </div>
+
+            <div className="mt-2.5 flex items-baseline gap-2">
+              <span className="text-3xl sm:text-4xl font-black text-amber-300 tracking-tight drop-shadow-sm">
+                {formatCurrency(currentMonthData.marketOutstandingCash, currency)}
+              </span>
+            </div>
+
+            <div className="mt-2 pt-2 border-t border-white/10 flex flex-col gap-0.5 text-xs text-slate-300">
+              <div className="flex items-center justify-between">
+                <span>Naya Cash Injected (This Month):</span>
+                <strong className="text-amber-200 font-bold">+{formatCurrency(currentMonthData.newLoansMarketValue, currency)}</strong>
+              </div>
+              <p className="text-[10px] text-slate-400 truncate" title={currentMonthData.newLoansMarketBreakdown}>
+                {currentMonthData.newLoansMarketBreakdown}
+              </p>
+            </div>
+          </div>
+
+          {/* Card 2: Market Me Available Cash Pool */}
           <div className="p-4 sm:p-5 bg-white/5 hover:bg-white/10 border border-emerald-500/40 rounded-2xl relative overflow-hidden transition group">
             <div className="absolute -right-4 -bottom-4 w-28 h-28 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
             <div className="flex items-start justify-between">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
-                  <Coins className="h-3.5 w-3.5 text-emerald-400" />
-                  Market Me Available Cash Pool
+                  <Landmark className="h-4 w-4 text-emerald-400" />
+                  Is Month Available Cash Pool
                 </span>
                 <p className="text-xs text-slate-300 mt-0.5">
                   Is month naye loans pass karne ke liye kul uplabdh fund:
@@ -426,21 +466,21 @@ export default function ViewModelPage() {
             </div>
           </div>
 
-          {/* Card 2: Market Me Kitne Rs Bach Rahe Hain (Surplus Remaining) */}
+          {/* Card 3: Bank / Tijori Me Bacha Liquid Cash (Net Surplus) */}
           <div className="p-4 sm:p-5 bg-gradient-to-br from-purple-900/30 via-white/5 to-purple-900/10 border-2 border-purple-400/50 rounded-2xl relative overflow-hidden shadow-lg transition group">
             <div className="absolute -right-4 -bottom-4 w-28 h-28 bg-purple-500/15 rounded-full blur-2xl pointer-events-none" />
             <div className="flex items-start justify-between">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
-                  <Wallet className="h-3.5 w-3.5 text-purple-300" />
-                  Market Me Kitne Rs Bach Rahe Hain (Net Surplus)
+                  <Wallet className="h-4 w-4 text-purple-300" />
+                  Bank / Tijori Me Bacha Liquid Cash
                 </span>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  Loans/Renewals dene ke baad bacha hua cash (Agle month carry forward):
+                  Loans baantne ke baad bacha unspent cash (Next month carry forward):
                 </p>
               </div>
               <span className="text-[10px] font-black uppercase tracking-wider bg-purple-500/30 text-purple-200 px-2 py-0.5 rounded-md border border-purple-400/40">
-                Bacha Hua Cash
+                Gullak Surplus
               </span>
             </div>
 
@@ -449,7 +489,7 @@ export default function ViewModelPage() {
                 {formatCurrency(currentMonthData.surplusRemaining, currency)}
               </span>
               <span className="text-xs font-extrabold text-purple-200">
-                Bacha (Surplus)
+                Liquid Cash
               </span>
             </div>
 
@@ -480,9 +520,9 @@ export default function ViewModelPage() {
           </div>
 
           <div className="p-2.5 bg-white/5 border border-white/10 rounded-xl">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block">File Charges Profit</span>
-            <span className="text-base font-black text-amber-300">+{formatCurrency(currentMonthData.newFileChargesEarned, currency)}</span>
-            <span className="text-[10px] text-slate-400 block">Instant upfront profit</span>
+            <span className="text-[10px] font-bold uppercase text-slate-400 block">New Market Value</span>
+            <span className="text-base font-black text-amber-300">+{formatCurrency(currentMonthData.newLoansMarketValue, currency)}</span>
+            <span className="text-[10px] text-slate-400 block">Total future repayment book</span>
           </div>
 
           <div className="p-2.5 bg-white/5 border border-white/10 rounded-xl">
@@ -507,8 +547,11 @@ export default function ViewModelPage() {
                   🌟 Month {currentMonthData.month} Refinancing Active ({currentMonthData.refinanceBorrowers} Borrowers)
                 </span>
               )}
+              <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded-full font-black text-[11px]">
+                💼 Market Total Cash: {formatCurrency(currentMonthData.marketOutstandingCash, currency)}
+              </span>
               <span className="px-2.5 py-0.5 bg-purple-500/30 text-purple-200 border border-purple-400/40 rounded-full font-black text-[11px]">
-                💰 Market Me Bacha: {formatCurrency(currentMonthData.surplusRemaining, currency)}
+                💰 Bank Surplus: {formatCurrency(currentMonthData.surplusRemaining, currency)}
               </span>
             </div>
             <div className="flex items-baseline gap-3">
@@ -1385,19 +1428,19 @@ export default function ViewModelPage() {
           </p>
         </div>
 
-        {/* Metric 3: File Charges Earned this Month */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-purple-200/80 bg-purple-50/20 shadow-sm hover:shadow-md transition">
+        {/* Metric 3: Market Total Cash Outstanding */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-amber-300/80 bg-amber-50/20 shadow-sm hover:shadow-md transition">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">File Charges Profit</span>
-            <div className="h-9 w-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
-              <Receipt className="h-5 w-5" />
+            <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Market Me Total Cash</span>
+            <div className="h-9 w-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+              <Coins className="h-5 w-5" />
             </div>
           </div>
-          <p className="text-2xl font-black text-purple-700 mt-2">
-            +{formatCurrency(currentMonthData.newFileChargesEarned, currency)}
+          <p className="text-2xl font-black text-amber-900 mt-2">
+            {formatCurrency(currentMonthData.marketOutstandingCash, currency)}
           </p>
-          <p className="text-xs text-purple-600 mt-1">
-            Instant upfront fee collected
+          <p className="text-xs text-amber-700 mt-1 truncate" title={currentMonthData.newLoansMarketBreakdown}>
+            New Added: <strong className="text-amber-900">+{formatCurrency(currentMonthData.newLoansMarketValue, currency)}</strong>
           </p>
         </div>
 
@@ -1413,7 +1456,7 @@ export default function ViewModelPage() {
             {currentMonthData.nextMonthActiveLoans} Borrowers
           </p>
           <p className="text-xs text-slate-500 mt-1">
-            Surplus cash: <strong className="text-slate-800">{formatCurrency(currentMonthData.surplusRemaining, currency)}</strong>
+            Bank surplus: <strong className="text-slate-800">{formatCurrency(currentMonthData.surplusRemaining, currency)}</strong>
           </p>
         </div>
       </div>
@@ -1422,10 +1465,10 @@ export default function ViewModelPage() {
       <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
         <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-amber-500" />
-          <span>How Month {currentMonthData.month} Money Multiplied:</span>
+          <span>How Month {currentMonthData.month} Money Multiplied & Expanded Market Cash:</span>
         </h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
           <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
             <span className="text-[10px] uppercase font-bold text-slate-400">Step 1: Inflow</span>
             <p className="text-sm font-black text-slate-900">{formatCurrency(currentMonthData.emiCollected, currency)}</p>
@@ -1453,9 +1496,19 @@ export default function ViewModelPage() {
           </div>
 
           <div className="p-3.5 bg-purple-50/70 rounded-xl border border-purple-200 space-y-1">
-            <span className="text-[10px] uppercase font-bold text-purple-700">Step 4: Upfront Fee & Surplus</span>
+            <span className="text-[10px] uppercase font-bold text-purple-700">Step 4: Fee & Bank Surplus</span>
             <p className="text-sm font-black text-purple-700">+{formatCurrency(currentMonthData.newFileChargesEarned, currency)} Fee</p>
-            <p className="text-purple-800">Earned immediately + {formatCurrency(currentMonthData.surplusRemaining, currency)} surplus carried forward.</p>
+            <p className="text-purple-800">Fee collected + {formatCurrency(currentMonthData.surplusRemaining, currency)} bank surplus carried forward.</p>
+          </div>
+
+          <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-300 space-y-1">
+            <span className="text-[10px] uppercase font-bold text-amber-800">Step 5: Market Me Bacha Cash</span>
+            <p className="text-sm font-black text-amber-800">{formatCurrency(currentMonthData.marketOutstandingCash, currency)}</p>
+            <p className="text-amber-900">
+              {currentMonthData.newLoansMarketValue > 0
+                ? `+${formatCurrency(currentMonthData.newLoansMarketValue, currency)} naya injected (${currentMonthData.newLoansMarketBreakdown}).`
+                : 'Market portfolio ongoing collection.'}
+            </p>
           </div>
         </div>
       </div>
@@ -1520,7 +1573,8 @@ export default function ViewModelPage() {
                 <th className="py-3.5 px-4 text-emerald-800 bg-emerald-50/50">Disbursal Action</th>
                 <th className="py-3.5 px-4">Cash Outflow</th>
                 <th className="py-3.5 px-4 text-purple-800 bg-purple-50/50">File Charge Earned</th>
-                <th className="py-3.5 px-4 text-purple-900 bg-purple-100/50 font-black">Kitne Rs Bache (Surplus)</th>
+                <th className="py-3.5 px-4 text-purple-900 bg-purple-100/50 font-black">Bank Bacha (Surplus)</th>
+                <th className="py-3.5 px-4 text-amber-900 bg-amber-100/60 font-black">Market Me Total Cash</th>
                 <th className="py-3.5 px-4">Next Active</th>
               </tr>
             </thead>
@@ -1626,6 +1680,20 @@ export default function ViewModelPage() {
                     {/* Surplus Remaining */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-slate-500 font-mono text-xs">
                       {formatCurrency(row.surplusRemaining, currency)}
+                    </td>
+
+                    {/* Market Me Total Cash */}
+                    <td className="py-3.5 px-4 whitespace-nowrap bg-amber-50/50">
+                      <div>
+                        <span className="text-amber-950 font-black text-xs">
+                          {formatCurrency(row.marketOutstandingCash, currency)}
+                        </span>
+                        {row.newLoansMarketValue > 0 && (
+                          <p className="text-[10px] text-amber-700 font-bold">
+                            +{formatCurrency(row.newLoansMarketValue, currency)}
+                          </p>
+                        )}
+                      </div>
                     </td>
 
                     {/* Next Active */}

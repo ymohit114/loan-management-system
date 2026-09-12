@@ -19,6 +19,12 @@ export interface SimulationMonthData {
   cumulativeDisbursed: number;
   cumulativeFileCharges: number;
 
+  // Live Market Portfolio Metrics
+  marketOutstandingCash: number;        // Total future EMIs to be collected from market: sum(count * monthsLeft * emi)
+  activeCapitalDeployed: number;        // Total active loan principal deployed in market: sum(count * principal)
+  newLoansMarketValue: number;          // Total future repayment value injected this month (e.g. 8 * 4050 * 20 = 6,48,000)
+  newLoansMarketBreakdown: string;      // Breakdown text for presentation (e.g. "8 Loans (8 × ₹4,050 × 20m = ₹6,48,000)")
+
   // Refinancing Specific Metadata
   refinanceTriggered?: boolean;
   refinanceBorrowers?: number;
@@ -71,6 +77,7 @@ interface LoanCohort {
   count: number;
   monthsLeft: number;
   emi: number;
+  principal: number;
   isInitial?: boolean;
 }
 
@@ -108,9 +115,9 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
     };
   }
 
-  // Active loan cohorts: tracks count, months remaining, and EMI
+  // Active loan cohorts: tracks count, months remaining, EMI, and sanctioned principal
   let cohorts: LoanCohort[] = [
-    { count: initialLoans, monthsLeft: tenureMonths, emi: monthlyEmi, isInitial: true }
+    { count: initialLoans, monthsLeft: tenureMonths, emi: monthlyEmi, principal: sanctionedAmount, isInitial: true }
   ];
 
   let surplus = 0;
@@ -136,6 +143,11 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
     // 2. Total EMI collected this month
     const emiCollected = cohorts.reduce((acc, c) => acc + c.count * c.emi, 0);
     cumulativeCollected += emiCollected;
+
+    // Existing active cohorts have paid 1 installment this month
+    for (const c of cohorts) {
+      c.monthsLeft--;
+    }
 
     // 3. Pool of cash available to lend
     const surplusBefore = surplus;
@@ -204,6 +216,7 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
           count: refBorrowers,
           monthsLeft: refTenure,
           emi: refEmi,
+          principal: refSanctionedPerPerson,
           isInitial: false,
         });
       } else {
@@ -226,6 +239,7 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
             count: affordableCount,
             monthsLeft: refTenure,
             emi: refEmi,
+            principal: refSanctionedPerPerson,
             isInitial: false,
           });
         }
@@ -248,6 +262,7 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
           count: newLoansFunded,
           monthsLeft: tenureMonths,
           emi: monthlyEmi,
+          principal: sanctionedAmount,
           isInitial: false,
         });
       }
@@ -269,6 +284,7 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
           count: extraLoans,
           monthsLeft: tenureMonths,
           emi: monthlyEmi,
+          principal: sanctionedAmount,
           isInitial: false,
         });
       }
@@ -277,13 +293,37 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
     surplus = pool;
     cumulativeFileCharges += newFileChargesEarned;
 
-    // 5. Age cohorts & remove finished loans
-    for (const c of cohorts) {
-      c.monthsLeft--;
-    }
+    // Filter finished loans whose tenure has expired
     cohorts = cohorts.filter((c) => c.monthsLeft > 0 && c.count > 0);
 
     const nextMonthActiveLoans = cohorts.reduce((acc, c) => acc + c.count, 0);
+
+    // Total future cash to be collected from all active loans in the market
+    const marketOutstandingCash = cohorts.reduce((acc, c) => acc + c.count * c.monthsLeft * c.emi, 0);
+
+    // Total active loan principal deployed in the market
+    const activeCapitalDeployed = cohorts.reduce((acc, c) => acc + c.count * c.principal, 0);
+
+    // Repayment value injected into the market this month
+    const actualRefBorrowers = refinanceTriggered 
+      ? (!refIsDeficit ? refBorrowers : Math.min(refBorrowers, refMaxAffordable)) 
+      : 0;
+    const refMarketEmi = currentMonthRefinance?.monthlyEmi ?? refinanceMonthlyEmi;
+    const refMarketTenure = currentMonthRefinance?.tenureMonths ?? refinanceTenureMonths;
+    const refMarketValue = actualRefBorrowers * refMarketEmi * refMarketTenure;
+    const regMarketValue = newLoansFunded * monthlyEmi * tenureMonths;
+    const newLoansMarketValue = refMarketValue + regMarketValue;
+
+    let newLoansMarketBreakdown = '';
+    if (actualRefBorrowers > 0 && newLoansFunded > 0) {
+      newLoansMarketBreakdown = `${actualRefBorrowers} Renewed (${actualRefBorrowers}×₹${refMarketEmi.toLocaleString('en-IN')}×${refMarketTenure}m = ₹${refMarketValue.toLocaleString('en-IN')}) + ${newLoansFunded} New (${newLoansFunded}×₹${monthlyEmi.toLocaleString('en-IN')}×${tenureMonths}m = ₹${regMarketValue.toLocaleString('en-IN')})`;
+    } else if (actualRefBorrowers > 0) {
+      newLoansMarketBreakdown = `${actualRefBorrowers} Renewed (${actualRefBorrowers} × ₹${refMarketEmi.toLocaleString('en-IN')} × ${refMarketTenure}m = ₹${refMarketValue.toLocaleString('en-IN')})`;
+    } else if (newLoansFunded > 0) {
+      newLoansMarketBreakdown = `${newLoansFunded} Loans (${newLoansFunded} × ₹${monthlyEmi.toLocaleString('en-IN')} × ${tenureMonths}m = ₹${regMarketValue.toLocaleString('en-IN')})`;
+    } else {
+      newLoansMarketBreakdown = 'No new loans';
+    }
 
     results.push({
       month: m,
@@ -300,6 +340,11 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
       cumulativeCollected,
       cumulativeDisbursed,
       cumulativeFileCharges,
+      // Market metrics
+      marketOutstandingCash,
+      activeCapitalDeployed,
+      newLoansMarketValue,
+      newLoansMarketBreakdown,
       // Refinance data
       refinanceTriggered,
       refinanceBorrowers: refBorrowers,
