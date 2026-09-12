@@ -99,6 +99,8 @@ export interface Settings {
 
 export interface DashboardStats {
   totalDisbursed: number;
+  totalInHandGiven: number;
+  totalFileCharges: number;
   totalOutstanding: number;
   totalRecovered: number;
   totalInterestEarned: number;

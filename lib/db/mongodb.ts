@@ -558,6 +558,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const payments = (await PaymentModel.find().lean()) as any[];
 
   const totalDisbursed = loans.reduce((sum: number, l: any) => sum + (l.principal || 0), 0);
+  const totalFileCharges = loans.reduce((sum: number, l: any) => sum + (l.processing_fee || 0), 0);
+  const totalInHandGiven = loans.reduce((sum: number, l: any) => sum + ((l.principal || 0) - (l.processing_fee || 0)), 0);
   const totalOutstanding = loans.reduce((sum: number, l: any) => sum + (l.balance || 0), 0);
   const totalRecovered = loans.reduce((sum: number, l: any) => sum + (l.total_paid || 0), 0);
   const totalInterestEarned = loans.reduce((sum: number, l: any) => sum + (l.total_interest || 0), 0);
@@ -580,6 +582,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   return {
     totalDisbursed,
+    totalInHandGiven,
+    totalFileCharges,
     totalOutstanding,
     totalRecovered,
     totalInterestEarned,

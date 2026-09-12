@@ -17,7 +17,8 @@ import {
   Calendar,
   ChevronRight,
   ShieldAlert,
-  Search
+  Search,
+  Wallet
 } from 'lucide-react';
 import { DashboardStats, Payment, Settings, ScheduleItem } from '@/lib/types';
 import { formatCurrency, formatDate, generateWhatsAppReminderUrl } from '@/lib/utils';
@@ -98,28 +99,90 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Main KPI Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
-        {/* Total Disbursed */}
+      {/* Capital Disbursal & File Charge Breakdown Banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 sm:p-5 rounded-2xl shadow-md border border-slate-800">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 font-bold text-[11px] uppercase tracking-wider border border-indigo-500/30">
+                Capital Cashflow Summary
+              </span>
+              <span className="text-xs text-slate-400">Portfolio: <strong className="text-white">{stats?.activeLoansCount || 0} Borrowers</strong></span>
+            </div>
+            <p className="text-xs text-slate-300 mt-1">
+              Sanctioned Loan minus Upfront File Charge equals the actual Net In-Hand Cash disbursed to customers.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs">
+            <div className="bg-white/5 border border-white/10 px-3 py-2 rounded-xl">
+              <span className="text-slate-400 block text-[10px] uppercase font-semibold">Total Sanctioned</span>
+              <span className="text-white font-extrabold text-sm sm:text-base">
+                {formatCurrency(stats?.totalDisbursed || 0, currency)}
+              </span>
+            </div>
+
+            <span className="text-rose-400 font-extrabold text-base">−</span>
+
+            <div className="bg-rose-500/10 border border-rose-500/30 px-3 py-2 rounded-xl text-rose-300">
+              <span className="text-rose-300 block text-[10px] uppercase font-semibold">File Charges Deducted</span>
+              <span className="text-rose-200 font-extrabold text-sm sm:text-base">
+                -{formatCurrency(stats?.totalFileCharges || 0, currency)}
+              </span>
+            </div>
+
+            <span className="text-emerald-400 font-extrabold text-base">=</span>
+
+            <div className="bg-emerald-500/15 border border-emerald-500/40 px-3.5 py-2 rounded-xl text-emerald-300 shadow-sm">
+              <span className="text-emerald-300 block text-[10px] uppercase font-bold">Net In-Hand Disbursed</span>
+              <span className="text-emerald-200 font-extrabold text-base sm:text-lg">
+                {formatCurrency(stats?.totalInHandGiven || 0, currency)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main KPI Stats Grid (5 Cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-4">
+        {/* Card 1: Net In-Hand Disbursed */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Capital Lent</span>
-            <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Landmark className="h-5 w-5" />
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">In-Hand Disbursed</span>
+            <div className="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <Wallet className="h-5 w-5" />
             </div>
           </div>
           <div className="mt-4">
-            <h3 className="text-2xl font-extrabold text-slate-900">
-              {formatCurrency(stats?.totalDisbursed || 0, currency)}
+            <h3 className="text-2xl font-extrabold text-emerald-700">
+              {formatCurrency(stats?.totalInHandGiven || 0, currency)}
             </h3>
             <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-              <span>Across</span>
-              <span className="font-semibold text-slate-800">{stats?.activeLoansCount || 0} active loans</span>
+              <span>Sanctioned:</span>
+              <span className="font-semibold text-slate-800">{formatCurrency(stats?.totalDisbursed || 0, currency)}</span>
             </p>
           </div>
         </div>
 
-        {/* Total Outstanding */}
+        {/* Card 2: File Charges Deducted */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">File Charges Cut</span>
+            <div className="h-10 w-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+              <Receipt className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-4">
+            <h3 className="text-2xl font-extrabold text-purple-700">
+              {formatCurrency(stats?.totalFileCharges || 0, currency)}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Upfront fee collected
+            </p>
+          </div>
+        </div>
+
+        {/* Card 3: Total Outstanding */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Outstanding Balance</span>
@@ -132,31 +195,31 @@ export default function DashboardPage() {
               {formatCurrency(stats?.totalOutstanding || 0, currency)}
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Principal + remaining interest
+              Principal + interest due
             </p>
           </div>
         </div>
 
-        {/* Total Recovered */}
+        {/* Card 4: Total Recovered */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Recovered</span>
-            <div className="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
               <TrendingUp className="h-5 w-5" />
             </div>
           </div>
           <div className="mt-4">
-            <h3 className="text-2xl font-extrabold text-emerald-700">
+            <h3 className="text-2xl font-extrabold text-blue-700">
               {formatCurrency(stats?.totalRecovered || 0, currency)}
             </h3>
             <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-              <span>Interest earned:</span>
-              <span className="font-semibold text-emerald-700">{formatCurrency(stats?.totalInterestEarned || 0, currency)}</span>
+              <span>Interest:</span>
+              <span className="font-semibold text-blue-700">{formatCurrency(stats?.totalInterestEarned || 0, currency)}</span>
             </p>
           </div>
         </div>
 
-        {/* Overdue Amount */}
+        {/* Card 5: Overdue Amount */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Delinquent / Overdue</span>
@@ -170,7 +233,6 @@ export default function DashboardPage() {
             </h3>
             <p className="text-xs text-rose-600 font-medium mt-1 flex items-center gap-1">
               <span>{stats?.overdueLoansCount || 0} overdue loan(s)</span>
-              <span className="text-slate-400">| Requires follow-up</span>
             </p>
           </div>
         </div>

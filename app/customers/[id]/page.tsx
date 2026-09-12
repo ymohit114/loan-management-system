@@ -232,14 +232,18 @@ export default function CustomerDetailPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 mt-4 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4 text-xs">
                       <div>
-                        <span className="text-slate-400 text-[10px]">Principal</span>
+                        <span className="text-slate-400 text-[10px]">Sanctioned</span>
                         <p className="font-bold text-slate-900">{formatCurrency(loan.principal, currency)}</p>
                       </div>
                       <div>
-                        <span className="text-slate-400 text-[10px]">Interest Rate</span>
-                        <p className="font-bold text-slate-900">{loan.interest_rate}% {loan.rate_type}</p>
+                        <span className="text-rose-600 text-[10px]">File Charge</span>
+                        <p className="font-bold text-rose-600">-{formatCurrency(loan.processing_fee || 0, currency)}</p>
+                      </div>
+                      <div>
+                        <span className="text-emerald-700 text-[10px] font-semibold">In-Hand Cash</span>
+                        <p className="font-extrabold text-emerald-700">{formatCurrency(loan.principal - (loan.processing_fee || 0), currency)}</p>
                       </div>
                       <div>
                         <span className="text-slate-400 text-[10px]">Tenure</span>
