@@ -70,6 +70,7 @@ export default function ViewModelPage() {
   // Stepper State
   const [currentMonthIndex, setCurrentMonthIndex] = useState(1); // 1 to 30
   const [isPlaying, setIsPlaying] = useState(false);
+  const [tableDisplayMode, setTableDisplayMode] = useState<'stepper' | 'all'>('stepper');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Active configured months list (e.g. [16, 17])
@@ -260,7 +261,7 @@ export default function ViewModelPage() {
     if (currentMonthIndex < simulationData.length) {
       const nextM = currentMonthIndex + 1;
       setCurrentMonthIndex(nextM);
-      if (configuredRefinanceMonths.includes(nextM)) {
+      if (nextM >= 16) {
         setActiveConfigMonth(nextM);
       }
     }
@@ -270,7 +271,7 @@ export default function ViewModelPage() {
     if (currentMonthIndex > 1) {
       const prevM = currentMonthIndex - 1;
       setCurrentMonthIndex(prevM);
-      if (configuredRefinanceMonths.includes(prevM)) {
+      if (prevM >= 16) {
         setActiveConfigMonth(prevM);
       }
     }
@@ -279,7 +280,13 @@ export default function ViewModelPage() {
   const handleReset = () => {
     setIsPlaying(false);
     setCurrentMonthIndex(1);
+    setActiveConfigMonth(16);
   };
+
+  // Table rows: show only up to current month in stepper mode, or all 30
+  const visibleTableRows = tableDisplayMode === 'stepper' 
+    ? simulationData.slice(0, currentMonthIndex) 
+    : simulationData;
 
   const inHandRequired = loanPrincipal - fileCharge;
 
@@ -353,6 +360,58 @@ export default function ViewModelPage() {
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">Refinance Setup</span>
           </button>
+        </div>
+      </div>
+
+      {/* TOP PROMINENT LIVE MARKET CASH DISPLAY (ALWAYS VISIBLE AT TOP) */}
+      <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border-2 border-emerald-500/60 p-5 md:p-6 rounded-3xl shadow-2xl text-white">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-400 flex items-center justify-center shrink-0 shadow-lg">
+              <Wallet className="h-7 w-7" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                  <Coins className="h-3.5 w-3.5 fill-current" />
+                  Live Market Fund Available • Month {currentMonthData.month}
+                </span>
+                <span className="text-xs font-semibold text-slate-300">
+                  {currentMonthData.dateStr}
+                </span>
+              </div>
+              <h2 className="text-xs md:text-sm font-bold text-slate-300 mt-1">
+                Market me is samay kitna amount available hai (Lending Cash Pool):
+              </h2>
+              <div className="flex flex-wrap items-baseline gap-3 mt-1">
+                <span className="text-3xl md:text-5xl font-black text-emerald-400 tracking-tight drop-shadow-sm">
+                  {formatCurrency(currentMonthData.availablePool, currency)}
+                </span>
+                <span className="text-xs font-bold text-emerald-200 uppercase tracking-wider bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/30">
+                  Available to Disburse
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Real-Time Status Indicators */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 w-full lg:w-auto">
+            <div className="p-3 bg-white/5 border border-white/10 rounded-2xl">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">Monthly Inflow</span>
+              <span className="text-lg font-black text-blue-400">{formatCurrency(currentMonthData.emiCollected, currency)}</span>
+              <span className="text-[10px] text-slate-400 block">{currentMonthData.activePayingLoans} paying borrowers</span>
+            </div>
+            <div className="p-3 bg-white/5 border border-white/10 rounded-2xl">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">Active Market Capital</span>
+              <span className="text-lg font-black text-amber-300">{formatCurrency(currentMonthData.activePayingLoans * loanPrincipal, currency)}</span>
+              <span className="text-[10px] text-slate-400 block">Total Portfolio Deployed</span>
+            </div>
+            <div className="p-3 bg-white/5 border border-white/10 rounded-2xl col-span-2 sm:col-span-1">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">Surplus Carryover</span>
+              <span className="text-lg font-black text-purple-300">{formatCurrency(currentMonthData.surplusRemaining, currency)}</span>
+              <span className="text-[10px] text-slate-400 block">Agle month ke liye bacha</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -465,7 +524,7 @@ export default function ViewModelPage() {
               setIsPlaying(false);
               const m = parseInt(e.target.value, 10);
               setCurrentMonthIndex(m);
-              if (configuredRefinanceMonths.includes(m)) {
+              if (m >= 16) {
                 setActiveConfigMonth(m);
               }
             }}
@@ -474,8 +533,8 @@ export default function ViewModelPage() {
         </div>
       </div>
 
-      {/* DYNAMIC REFINANCING COMMAND CENTER (Visible when current month has refinance, or config panel is toggled, or month >= 15) */}
-      {(currentMonthData.refinanceTriggered || configuredRefinanceMonths.includes(currentMonthIndex) || showConfigPanel || currentMonthIndex >= 15) && (
+      {/* DYNAMIC REFINANCING COMMAND CENTER (Visible starting from Month 16 onwards, or when config panel toggled) */}
+      {(currentMonthIndex >= 16 || showConfigPanel) ? (
         <div className="p-5 md:p-6 bg-gradient-to-br from-amber-500/10 via-white to-amber-500/5 rounded-3xl border-2 border-amber-400/80 shadow-lg space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
           
           {/* MULTI-MONTH MILESTONES BAR & TABS */}
@@ -849,16 +908,34 @@ export default function ViewModelPage() {
                 })}
               </div>
             ) : (
-              <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300">
-                <p className="text-xs font-bold text-slate-500">Month {activeConfigMonth} me abhi koi borrower select nahi kiya gaya hai.</p>
-                <button
-                  type="button"
-                  onClick={() => handleSelectNextAvailableForActiveMonth(8)}
-                  className="mt-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black inline-flex items-center gap-1 shadow-sm transition"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  <span>Select Next 8 Available Borrowers</span>
-                </button>
+              <div className="p-6 text-center bg-amber-50/40 rounded-2xl border-2 border-dashed border-amber-300 space-y-2">
+                <div className="inline-flex p-2.5 bg-amber-100 rounded-full text-amber-800">
+                  <UserPlus className="h-5 w-5" />
+                </div>
+                <h4 className="text-sm font-black text-slate-900">
+                  Month {activeConfigMonth} me abhi koi borrower select nahi kiya gaya hai.
+                </h4>
+                <p className="text-xs text-slate-600 max-w-md mx-auto">
+                  Aap Month {activeConfigMonth} me purane customers ko ₹80,000 ka renewal loan de sakte hain. Bachi hui {activeOldEmisLeft} EMIs auto-deduct ho jayengi.
+                </p>
+                <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectNextAvailableForActiveMonth(8)}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black inline-flex items-center gap-2 shadow-md transition active:scale-95"
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    <span>+ Renew Next 8 Available Borrowers</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsBorrowerModalOpen(true)}
+                    className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-300 inline-flex items-center gap-1.5 transition"
+                  >
+                    <Users className="h-4 w-4" />
+                    <span>Pick Manually</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -920,6 +997,41 @@ export default function ViewModelPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      ) : (
+        <div className="p-5 bg-gradient-to-r from-slate-900/5 via-indigo-50/50 to-slate-900/5 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+          <div className="flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 shadow-sm">
+              <Landmark className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                  Standard Lending Phase • Month {currentMonthIndex} of 15
+                </span>
+                <span className="text-xs text-slate-500 font-semibold">
+                  (Regular ₹60k Loan Distribution)
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1">
+                Is month me aayi EMI collection se naye ₹60,000 ke regular loans pass ho rahe hain. <strong>Customer Renewal / Refinancing option Month 16</strong> se unlock hoga jab purane borrowers ki 16 EMIs complete hongi.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentMonthIndex(16);
+                setActiveConfigMonth(16);
+              }}
+              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl shadow-sm transition active:scale-95 flex items-center gap-1.5"
+            >
+              <Sparkles className="h-3.5 w-3.5 fill-current" />
+              <span>Jump to Month 16 Renewal $\rightarrow$</span>
+            </button>
           </div>
         </div>
       )}
@@ -1213,17 +1325,45 @@ export default function ViewModelPage() {
           <div>
             <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-indigo-600" />
-              <span>Full 30-Month Compounding & Refinancing Ledger Table</span>
+              <span>Compounding & Refinancing Ledger Table</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Click any row to jump to that month. Row with glowing border is the current simulated month. Golden rows feature refinancing milestones.
+              {tableDisplayMode === 'stepper'
+                ? `Showing Month 1 to ${currentMonthIndex} (Step-by-Step View). Click Next Month (+1 Month) to reveal next month.`
+                : 'Showing all 30 months full cycle ledger projection.'}
             </p>
           </div>
 
-          <div className="flex items-center gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2.5 text-xs">
+            {/* View Mode Toggle: Stepper (1 month at a time) vs All 30 Months */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setTableDisplayMode('stepper')}
+                className={`px-3 py-1.5 text-xs font-black rounded-lg transition ${
+                  tableDisplayMode === 'stepper'
+                    ? 'bg-white text-indigo-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Step View (Month 1 to {currentMonthIndex})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTableDisplayMode('all')}
+                className={`px-3 py-1.5 text-xs font-black rounded-lg transition ${
+                  tableDisplayMode === 'all'
+                    ? 'bg-white text-indigo-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Show All 30 Months
+              </button>
+            </div>
+
             <span className="flex items-center gap-1.5 text-amber-700 font-bold bg-amber-50 px-2 py-1 rounded-md border border-amber-200">
               <Sparkles className="h-3 w-3" />
-              <span>Refinance Active: {configuredRefinanceMonths.map((m) => `M${m}`).join(', ')}</span>
+              <span>Refinance: {configuredRefinanceMonths.map((m) => `M${m}`).join(', ')}</span>
             </span>
           </div>
         </div>
@@ -1244,7 +1384,7 @@ export default function ViewModelPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
-              {simulationData.map((row) => {
+              {visibleTableRows.map((row) => {
                 const isCurrent = row.month === currentMonthIndex;
                 const isRefinanceMonth = !!row.refinanceTriggered;
 
@@ -1254,7 +1394,7 @@ export default function ViewModelPage() {
                     onClick={() => {
                       setIsPlaying(false);
                       setCurrentMonthIndex(row.month);
-                      if (configuredRefinanceMonths.includes(row.month)) {
+                      if (row.month >= 16) {
                         setActiveConfigMonth(row.month);
                       }
                     }}
