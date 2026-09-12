@@ -17,7 +17,8 @@ import {
   Shield, 
   MessageCircle, 
   Receipt,
-  FileText
+  FileText,
+  RefreshCw
 } from 'lucide-react';
 import { Loan, Customer, ScheduleItem, Payment, Settings } from '@/lib/types';
 import { formatCurrency, formatDate, generateWhatsAppReminderUrl } from '@/lib/utils';
@@ -93,13 +94,22 @@ export default function LoanDetailPage() {
           </button>
 
           {loan.status !== 'completed' && loan.balance > 0 && (
-            <button
-              onClick={() => openRecordPayment(loan)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95"
-            >
-              <CreditCard className="h-4 w-4" />
-              <span>Collect Repayment</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/loans/new?customer_id=${loan.customer_id}&settle_loan_id=${loan.id}`}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Top-Up / Re-loan</span>
+              </Link>
+              <button
+                onClick={() => openRecordPayment(loan)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95"
+              >
+                <CreditCard className="h-4 w-4" />
+                <span>Collect Repayment</span>
+              </button>
+            </div>
           )}
         </div>
       </div>

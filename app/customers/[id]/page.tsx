@@ -16,7 +16,8 @@ import {
   Clock, 
   CreditCard,
   Edit,
-  ExternalLink
+  ExternalLink,
+  RefreshCw
 } from 'lucide-react';
 import { Customer, Loan } from '@/lib/types';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -277,13 +278,23 @@ export default function CustomerDetailPage() {
                     </Link>
 
                     {loan.status !== 'completed' && loan.balance > 0 && (
-                      <button
-                        onClick={() => openRecordPayment(loan)}
-                        className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
-                      >
-                        <CreditCard className="h-3.5 w-3.5 text-emerald-400" />
-                        <span>Collect</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/loans/new?customer_id=${customer.id}&settle_loan_id=${loan.id}`}
+                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                          title="Top-up / Refinance loan"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          <span>Top-Up</span>
+                        </Link>
+                        <button
+                          onClick={() => openRecordPayment(loan)}
+                          className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                        >
+                          <CreditCard className="h-3.5 w-3.5 text-emerald-400" />
+                          <span>Collect</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

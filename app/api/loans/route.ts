@@ -55,6 +55,8 @@ export async function POST(req: NextRequest) {
       processing_fee: Number(body.processing_fee || 0),
       collateral_details: body.collateral_details || '',
       notes: body.notes || '',
+      settle_loan_id: body.settle_loan_id ? Number(body.settle_loan_id) : undefined,
+      settle_amount: body.settle_amount !== undefined ? Number(body.settle_amount) : undefined,
     });
 
     return NextResponse.json({ success: true, data: loan }, { status: 201 });

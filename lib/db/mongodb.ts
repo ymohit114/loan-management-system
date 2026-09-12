@@ -294,6 +294,8 @@ export async function createLoan(params: {
   processing_fee?: number;
   collateral_details?: string;
   notes?: string;
+  settle_loan_id?: number;
+  settle_amount?: number;
 }): Promise<Loan> {
   await connectMongo();
 
@@ -312,6 +314,59 @@ export async function createLoan(params: {
   const maxLoan = (await LoanModel.findOne().sort({ id: -1 }).lean()) as any;
   const newLoanId = (maxLoan?.id || 0) + 1;
   const loanCode = `LN-${year}-${String(newLoanId).padStart(4, '0')}`;
+
+  let notes = params.notes || '';
+
+  // If settling an existing loan (Top-up loan)
+  if (params.settle_loan_id) {
+    const oldLoan = (await LoanModel.findOne({ id: params.settle_loan_id })) as any;
+    if (oldLoan) {
+      const deductionAmount = params.settle_amount !== undefined ? params.settle_amount : oldLoan.balance;
+
+      // Mark all pending/partial/overdue installments of old loan as paid
+      await ScheduleModel.updateMany(
+        { loan_id: params.settle_loan_id, status: { $ne: 'paid' } },
+        { $set: { status: 'paid', paid_date: params.disbursal_date } }
+      );
+
+      // Record a settlement payment on the old loan
+      const maxPayment = (await PaymentModel.findOne().sort({ id: -1 }).lean()) as any;
+      const newPaymentId = (maxPayment?.id || 0) + 1;
+      const paymentCode = `RCP-${year}-${String(newPaymentId).padStart(4, '0')}`;
+
+      await PaymentModel.create({
+        id: newPaymentId,
+        loan_id: oldLoan.id,
+        customer_id: oldLoan.customer_id,
+        payment_code: paymentCode,
+        amount: deductionAmount,
+        payment_date: params.disbursal_date,
+        payment_method: 'other',
+        reference_no: `TOPUP-${loanCode}`,
+        notes: `Loan closed & settled via Top-Up / Renewal Loan ${loanCode}`,
+        principal_component: oldLoan.balance,
+        interest_component: 0,
+        penalty_component: 0,
+        balance_after: 0,
+        created_at: new Date().toISOString(),
+      });
+
+      // Close old loan
+      await LoanModel.updateOne(
+        { id: oldLoan.id },
+        {
+          $set: {
+            total_paid: oldLoan.total_payable,
+            balance: 0,
+            status: 'completed',
+            notes: (oldLoan.notes || '') + ` | Settled via Top-Up Loan ${loanCode} (Deducted ₹${deductionAmount})`,
+          }
+        }
+      );
+
+      notes = (notes ? notes + ' | ' : '') + `Top-Up / Refinance Loan. Old Loan ${oldLoan.loan_code} balance (₹${deductionAmount}) deducted & settled.`;
+    }
+  }
 
   const createdLoan = await LoanModel.create({
     id: newLoanId,
@@ -333,7 +388,7 @@ export async function createLoan(params: {
     first_payment_date: params.first_payment_date,
     processing_fee: params.processing_fee || 0,
     collateral_details: params.collateral_details || '',
-    notes: params.notes || '',
+    notes,
     created_at: new Date().toISOString(),
   });
 

@@ -8,16 +8,16 @@ import {
   Landmark, 
   UserPlus, 
   Calendar, 
-  DollarSign, 
-  Percent, 
   Shield, 
   Check, 
   AlertCircle, 
-  Info,
-  ChevronRight,
-  Calculator
+  RefreshCw,
+  Calculator,
+  Layers,
+  ArrowRight,
+  Sparkles
 } from 'lucide-react';
-import { Customer, InterestCalculationType, RepaymentFrequency, Settings } from '@/lib/types';
+import { Customer, InterestCalculationType, RepaymentFrequency, Settings, Loan } from '@/lib/types';
 import { calculateLoan, LoanCalculationResult } from '@/lib/loan-calculator';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { CustomerModal } from '@/components/customers/CustomerModal';
@@ -27,27 +27,38 @@ function NewLoanContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedCustomerId = searchParams.get('customer_id');
+  const preselectedSettleLoanId = searchParams.get('settle_loan_id');
 
   const { settings } = useContext(PaymentContext);
   const currency = settings?.currency || '₹';
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(preselectedCustomerId || '');
+  const [customerActiveLoans, setCustomerActiveLoans] = useState<Loan[]>([]);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
 
+  // Top-Up / Settle Old Loan State
+  const [shouldSettleOldLoan, setShouldSettleOldLoan] = useState<boolean>(Boolean(preselectedSettleLoanId));
+  const [selectedSettleLoanId, setSelectedSettleLoanId] = useState<string>(preselectedSettleLoanId || '');
+  const [settleAmount, setSettleAmount] = useState<string>('0');
+
+  // Input Mode: 'by_rate' vs 'by_emi'
+  const [inputMode, setInputMode] = useState<'by_rate' | 'by_emi'>('by_emi');
+  const [customEmi, setCustomEmi] = useState<string>('4050');
+
   // Loan parameters
-  const [principal, setPrincipal] = useState<string>('50000');
+  const [principal, setPrincipal] = useState<string>('60000');
   const [calculationType, setCalculationType] = useState<InterestCalculationType>('flat');
-  const [interestRate, setInterestRate] = useState<string>('2'); // 2%
+  const [interestRate, setInterestRate] = useState<string>('1.75'); // 1.75% monthly
   const [rateType, setRateType] = useState<'monthly' | 'annual'>('monthly');
   const [frequency, setFrequency] = useState<RepaymentFrequency>('monthly');
-  const [tenureValue, setTenureValue] = useState<string>('6');
+  const [tenureValue, setTenureValue] = useState<string>('20');
   const [tenureUnit, setTenureUnit] = useState<'months' | 'weeks' | 'days'>('months');
   
   const today = new Date().toISOString().split('T')[0];
   const [disbursalDate, setDisbursalDate] = useState<string>(today);
 
-  // Calculate default next payment date (1 month or 1 week ahead)
+  // Calculate default next payment date (1 month ahead)
   const defaultFirstPayment = useMemo(() => {
     const d = new Date(disbursalDate || today);
     if (frequency === 'monthly') d.setMonth(d.getMonth() + 1);
@@ -63,7 +74,7 @@ function NewLoanContent() {
     setFirstPaymentDate(defaultFirstPayment);
   }, [defaultFirstPayment]);
 
-  const [processingFee, setProcessingFee] = useState<string>('1000');
+  const [processingFee, setProcessingFee] = useState<string>('5000');
   const [collateralDetails, setCollateralDetails] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
 
@@ -89,29 +100,139 @@ function NewLoanContent() {
     fetchCustomers();
   }, []);
 
+  // Fetch active loans when borrower changes
+  useEffect(() => {
+    if (selectedCustomerId) {
+      fetch(`/api/customers/${selectedCustomerId}`)
+        .then((res) => res.json())
+        .then((res) => {
+          if (res.success && res.data?.loans) {
+            const active = res.data.loans.filter((l: Loan) => l.balance > 0 && ['active', 'overdue'].includes(l.status));
+            setCustomerActiveLoans(active);
+            if (active.length > 0) {
+              const defaultLoan = preselectedSettleLoanId 
+                ? active.find((l: Loan) => String(l.id) === preselectedSettleLoanId) || active[0]
+                : active[0];
+              setSelectedSettleLoanId(String(defaultLoan.id));
+              setSettleAmount(String(defaultLoan.balance));
+              setShouldSettleOldLoan(true);
+            } else {
+              setSelectedSettleLoanId('');
+              setSettleAmount('0');
+              setShouldSettleOldLoan(false);
+            }
+          }
+        })
+        .catch((err) => console.error(err));
+    } else {
+      setCustomerActiveLoans([]);
+      setSelectedSettleLoanId('');
+      setSettleAmount('0');
+      setShouldSettleOldLoan(false);
+    }
+  }, [selectedCustomerId, preselectedSettleLoanId]);
+
+  // When selected settle loan changes, update settleAmount
+  const handleSettleLoanSelect = (loanId: string) => {
+    setSelectedSettleLoanId(loanId);
+    const found = customerActiveLoans.find((l) => String(l.id) === loanId);
+    if (found) {
+      setSettleAmount(String(found.balance));
+    }
+  };
+
+  // Sync EMI & Rate when in 'by_emi' mode
+  useEffect(() => {
+    if (inputMode === 'by_emi') {
+      const p = parseFloat(principal);
+      const emi = parseFloat(customEmi);
+      const t = parseInt(tenureValue, 10);
+      if (p > 0 && emi > 0 && t > 0) {
+        const totalPay = emi * t;
+        const totalInt = Math.max(0, totalPay - p);
+        // Periodic monthly rate = (totalInt / p) / t * 100
+        const monthlyRate = (totalInt / p / t) * 100;
+        setInterestRate(monthlyRate.toFixed(2));
+        setRateType('monthly');
+      }
+    }
+  }, [inputMode, customEmi, principal, tenureValue]);
+
   // Compute live calculation result
   const calculationResult: LoanCalculationResult | null = useMemo(() => {
     const p = parseFloat(principal);
-    const r = parseFloat(interestRate);
     const t = parseInt(tenureValue, 10);
 
-    if (isNaN(p) || p <= 0 || isNaN(r) || isNaN(t) || t <= 0) return null;
+    if (isNaN(p) || p <= 0 || isNaN(t) || t <= 0) return null;
 
-    try {
-      return calculateLoan({
+    if (inputMode === 'by_emi') {
+      const emi = parseFloat(customEmi);
+      if (isNaN(emi) || emi <= 0) return null;
+
+      const totalPayable = emi * t;
+      const totalInterest = Math.max(0, totalPayable - p);
+      const pDue = Math.floor(p / t);
+      const pRemainder = p - (pDue * t);
+      const iDue = Math.floor(totalInterest / t);
+      const iRemainder = totalInterest - (iDue * t);
+
+      let remaining = totalPayable;
+      const schedule = [];
+
+      for (let i = 0; i < t; i++) {
+        const thisP = pDue + (i === t - 1 ? pRemainder : 0);
+        const thisI = iDue + (i === t - 1 ? iRemainder : 0);
+        const thisT = thisP + thisI;
+        remaining -= thisT;
+
+        const d = new Date(firstPaymentDate || today);
+        d.setMonth(d.getMonth() + i);
+
+        schedule.push({
+          installmentNumber: i + 1,
+          dueDate: d.toISOString().split('T')[0],
+          principalDue: thisP,
+          interestDue: thisI,
+          totalDue: thisT,
+          remainingBalance: Math.max(0, remaining),
+        });
+      }
+
+      return {
         principal: p,
-        interestRate: r,
-        rateType,
-        calculationType,
-        frequency,
-        tenureValue: t,
-        tenureUnit,
-        firstPaymentDate,
-      });
-    } catch {
-      return null;
+        totalInterest,
+        totalPayable,
+        installmentAmount: emi,
+        numberOfInstallments: t,
+        schedule,
+      };
+    } else {
+      const r = parseFloat(interestRate);
+      if (isNaN(r) || r < 0) return null;
+      try {
+        return calculateLoan({
+          principal: p,
+          interestRate: r,
+          rateType,
+          calculationType,
+          frequency,
+          tenureValue: t,
+          tenureUnit,
+          firstPaymentDate,
+        });
+      } catch {
+        return null;
+      }
     }
-  }, [principal, interestRate, rateType, calculationType, frequency, tenureValue, tenureUnit, firstPaymentDate]);
+  }, [inputMode, customEmi, principal, interestRate, rateType, calculationType, frequency, tenureValue, tenureUnit, firstPaymentDate]);
+
+  // Financial Deductions Breakdown
+  const principalAmount = parseFloat(principal) || 0;
+  const feeAmount = parseFloat(processingFee) || 0;
+  const oldLoanDeduction = shouldSettleOldLoan ? (parseFloat(settleAmount) || 0) : 0;
+  const netInHandDisbursed = Math.max(0, principalAmount - feeAmount - oldLoanDeduction);
+
+  const selectedOldLoan = customerActiveLoans.find((l) => String(l.id) === selectedSettleLoanId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,9 +243,13 @@ function NewLoanContent() {
       return;
     }
 
-    const p = parseFloat(principal);
-    if (!p || p <= 0) {
+    if (principalAmount <= 0) {
       setError('Principal amount must be greater than 0.');
+      return;
+    }
+
+    if (shouldSettleOldLoan && oldLoanDeduction > principalAmount) {
+      setError('Old loan settlement amount cannot be greater than the new loan principal.');
       return;
     }
 
@@ -136,7 +261,7 @@ function NewLoanContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customer_id: Number(selectedCustomerId),
-          principal: p,
+          principal: principalAmount,
           interest_rate: parseFloat(interestRate) || 0,
           rate_type: rateType,
           calculation_type: calculationType,
@@ -145,9 +270,11 @@ function NewLoanContent() {
           tenure_unit: tenureUnit,
           disbursal_date: disbursalDate,
           first_payment_date: firstPaymentDate,
-          processing_fee: parseFloat(processingFee) || 0,
+          processing_fee: feeAmount,
           collateral_details: collateralDetails,
-          notes,
+          notes: notes.trim(),
+          settle_loan_id: shouldSettleOldLoan && selectedSettleLoanId ? Number(selectedSettleLoanId) : undefined,
+          settle_amount: shouldSettleOldLoan ? oldLoanDeduction : undefined,
         }),
       });
 
@@ -170,7 +297,7 @@ function NewLoanContent() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-5xl">
       {/* Back button & Title */}
       <div className="flex items-center justify-between">
         <Link
@@ -188,8 +315,12 @@ function NewLoanContent() {
             <Landmark className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold text-slate-900">Disburse New Loan</h1>
-            <p className="text-xs text-slate-500">Configure interest scheme, generate repayment schedule, and disburse</p>
+            <h1 className="text-2xl font-extrabold text-slate-900">
+              {shouldSettleOldLoan ? 'Top-Up & Renewal Loan' : 'Disburse New Loan'}
+            </h1>
+            <p className="text-xs text-slate-500">
+              Configure loan amount, monthly EMI, deduct previous loan balance, and compute net in-hand
+            </p>
           </div>
         </div>
 
@@ -256,76 +387,117 @@ function NewLoanContent() {
             </div>
           </div>
 
-          {/* Step 2: Loan Financial Terms */}
+          {/* Top-Up / Settle Old Loan Box (Appears when customer has an active unpaid loan) */}
+          {customerActiveLoans.length > 0 && (
+            <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-2xl space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
+                    <RefreshCw className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                      <span>Existing Active Loan Detected! (Top-Up / Renewal Available)</span>
+                    </h3>
+                    <p className="text-xs text-amber-900">
+                      This customer has an active loan. You can automatically deduct their remaining balance from the new loan and close the old loan.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-xl border border-amber-300 shadow-sm shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={shouldSettleOldLoan}
+                    onChange={(e) => setShouldSettleOldLoan(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                  />
+                  <span className="text-xs font-bold text-slate-900">Deduct & Settle Old Loan</span>
+                </label>
+              </div>
+
+              {shouldSettleOldLoan && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-amber-200">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Select Old Loan to Close
+                    </label>
+                    <select
+                      value={selectedSettleLoanId}
+                      onChange={(e) => handleSettleLoanSelect(e.target.value)}
+                      className="w-full text-xs font-bold border border-amber-300 rounded-xl p-2.5 bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    >
+                      {customerActiveLoans.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.loan_code} — Remaining Bal: {formatCurrency(l.balance, currency)} (Sanctioned: {formatCurrency(l.principal, currency)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Deduction / Settlement Amount ({currency})
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">{currency}</span>
+                      <input
+                        type="number"
+                        step="any"
+                        value={settleAmount}
+                        onChange={(e) => setSettleAmount(e.target.value)}
+                        placeholder="0"
+                        className="w-full pl-8 pr-3 py-2 text-xs font-extrabold text-rose-700 border border-amber-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                    {selectedOldLoan && (
+                      <p className="text-[10px] text-amber-800 mt-1">
+                        Full remaining balance on {selectedOldLoan.loan_code} is <b>{formatCurrency(selectedOldLoan.balance, currency)}</b>.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2: New Loan Financial Terms & Custom EMI Mode */}
           <div className="space-y-4">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-              <span className="h-5 w-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">2</span>
-              <span>Loan Amount & Calculation Scheme</span>
-            </label>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <span className="h-5 w-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">2</span>
+                <span>New Loan Configuration & EMI Setting</span>
+              </label>
 
-            {/* Scheme Selector Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {/* Flat Rate */}
-              <div
-                onClick={() => setCalculationType('flat')}
-                className={`p-4 rounded-xl border-2 cursor-pointer transition ${
-                  calculationType === 'flat'
-                    ? 'border-indigo-600 bg-indigo-50/40 text-indigo-950 shadow-sm'
-                    : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="font-bold text-xs">Flat Rate (Simple)</p>
-                  {calculationType === 'flat' && <Check className="h-4 w-4 text-indigo-600" />}
-                </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Fixed interest charged on the initial principal throughout tenure. Most popular in money lending.
-                </p>
-              </div>
-
-              {/* Reducing Balance */}
-              <div
-                onClick={() => setCalculationType('reducing')}
-                className={`p-4 rounded-xl border-2 cursor-pointer transition ${
-                  calculationType === 'reducing'
-                    ? 'border-indigo-600 bg-indigo-50/40 text-indigo-950 shadow-sm'
-                    : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="font-bold text-xs">Reducing Balance (EMI)</p>
-                  {calculationType === 'reducing' && <Check className="h-4 w-4 text-indigo-600" />}
-                </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Standard amortized banking EMI where interest decreases as principal is gradually repaid.
-                </p>
-              </div>
-
-              {/* Interest Only */}
-              <div
-                onClick={() => setCalculationType('interest_only')}
-                className={`p-4 rounded-xl border-2 cursor-pointer transition ${
-                  calculationType === 'interest_only'
-                    ? 'border-indigo-600 bg-indigo-50/40 text-indigo-950 shadow-sm'
-                    : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="font-bold text-xs">Interest-Only (Bullet)</p>
-                  {calculationType === 'interest_only' && <Check className="h-4 w-4 text-indigo-600" />}
-                </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Borrower pays only interest periodically; entire principal is paid at maturity or closing.
-                </p>
+              {/* Mode Switcher */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setInputMode('by_emi')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                    inputMode === 'by_emi' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Set Custom EMI (₹) Directly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInputMode('by_rate')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                    inputMode === 'by_rate' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Calculate by Rate (%)
+                </button>
               </div>
             </div>
 
-            {/* Inputs Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+            {/* Principal, Tenure & EMI Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
               {/* Principal */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Principal Amount ({currency}) <span className="text-rose-500">*</span>
+                  New Sanctioned Loan ({currency}) <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">{currency}</span>
@@ -334,84 +506,85 @@ function NewLoanContent() {
                     step="any"
                     value={principal}
                     onChange={(e) => setPrincipal(e.target.value)}
-                    placeholder="50000"
-                    className="w-full pl-8 pr-3 py-2.5 text-xs font-bold text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    placeholder="60000"
+                    className="w-full pl-8 pr-3 py-2.5 text-xs font-extrabold text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     required
                   />
                 </div>
               </div>
 
-              {/* Interest Rate & Period */}
+              {/* Tenure (Months) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Interest Rate (%) <span className="text-rose-500">*</span>
-                </label>
-                <div className="flex">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={interestRate}
-                    onChange={(e) => setInterestRate(e.target.value)}
-                    placeholder="2"
-                    className="w-full rounded-l-xl border border-r-0 border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    required
-                  />
-                  <select
-                    value={rateType}
-                    onChange={(e) => setRateType(e.target.value as any)}
-                    className="rounded-r-xl border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-700 focus:outline-none"
-                  >
-                    <option value="monthly">% / Month</option>
-                    <option value="annual">% / Year</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Tenure */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Loan Tenure <span className="text-rose-500">*</span>
+                  Total Tenure / Months <span className="text-rose-500">*</span>
                 </label>
                 <div className="flex">
                   <input
                     type="number"
                     value={tenureValue}
                     onChange={(e) => setTenureValue(e.target.value)}
-                    placeholder="6"
+                    placeholder="20"
                     className="w-full rounded-l-xl border border-r-0 border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     required
                   />
-                  <select
-                    value={tenureUnit}
-                    onChange={(e) => setTenureUnit(e.target.value as any)}
-                    className="rounded-r-xl border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-700 focus:outline-none capitalize"
-                  >
-                    <option value="months">Months</option>
-                    <option value="weeks">Weeks</option>
-                    <option value="days">Days</option>
-                  </select>
+                  <span className="rounded-r-xl border border-slate-200 bg-slate-50 px-3 flex items-center text-xs font-semibold text-slate-600">
+                    EMIs / Months
+                  </span>
                 </div>
               </div>
 
-              {/* Repayment Frequency */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Repayment Frequency
-                </label>
-                <select
-                  value={frequency}
-                  onChange={(e) => setFrequency(e.target.value as any)}
-                  className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none capitalize"
-                >
-                  <option value="monthly">Monthly</option>
-                  <option value="biweekly">Every 2 Weeks (Bi-weekly)</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="daily">Daily</option>
-                </select>
-              </div>
+              {/* Monthly EMI Input (Mode: by_emi) or Interest Rate (Mode: by_rate) */}
+              {inputMode === 'by_emi' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-indigo-700 mb-1 flex items-center gap-1">
+                    <Sparkles className="h-3 w-3 text-indigo-600" />
+                    <span>Monthly EMI Amount ({currency})</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400 font-bold">{currency}</span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={customEmi}
+                      onChange={(e) => setCustomEmi(e.target.value)}
+                      placeholder="4050"
+                      className="w-full pl-8 pr-3 py-2.5 text-xs font-extrabold text-indigo-700 border-2 border-indigo-200 bg-indigo-50/30 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      required
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Effective rate: <span className="font-bold">{interestRate}% / month</span>
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Interest Rate (%) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="flex">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={interestRate}
+                      onChange={(e) => setInterestRate(e.target.value)}
+                      placeholder="1.75"
+                      className="w-full rounded-l-xl border border-r-0 border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      required
+                    />
+                    <select
+                      value={rateType}
+                      onChange={(e) => setRateType(e.target.value as any)}
+                      className="rounded-r-xl border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-700 focus:outline-none"
+                    >
+                      <option value="monthly">% / Month</option>
+                      <option value="annual">% / Year</option>
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Dates & Fees Grid */}
+            {/* Dates & File Charge */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -443,17 +616,17 @@ function NewLoanContent() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   File Charge / Processing Fee ({currency})
                 </label>
-                <input
-                  type="number"
-                  step="any"
-                  value={processingFee}
-                  onChange={(e) => setProcessingFee(e.target.value)}
-                  placeholder="5000"
-                  className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-medium text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">
-                  Net in-hand: <span className="font-bold text-emerald-700">{formatCurrency(Math.max(0, (parseFloat(principal) || 0) - (parseFloat(processingFee) || 0)), currency)}</span>
-                </p>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">{currency}</span>
+                  <input
+                    type="number"
+                    step="any"
+                    value={processingFee}
+                    onChange={(e) => setProcessingFee(e.target.value)}
+                    placeholder="5000"
+                    className="w-full pl-8 pr-3 py-2.5 text-xs font-medium text-slate-800 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
               </div>
             </div>
 
@@ -467,7 +640,7 @@ function NewLoanContent() {
                   type="text"
                   value={collateralDetails}
                   onChange={(e) => setCollateralDetails(e.target.value)}
-                  placeholder="e.g. 15g Gold Ring / Original Property Registry / Signed PDC Cheque"
+                  placeholder="e.g. Signed Promissory Note & Blank Cheque"
                   className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -480,9 +653,52 @@ function NewLoanContent() {
                   type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Stock purchase for retail shop expansion"
+                  placeholder="e.g. Top-up personal loan"
                   className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* Live In-Hand Disbursal Math Box */}
+          <div className="p-5 bg-gradient-to-br from-emerald-50 via-teal-50 to-slate-50 border-2 border-emerald-300 rounded-2xl shadow-sm space-y-3">
+            <h4 className="font-extrabold text-xs uppercase tracking-wider text-emerald-950 flex items-center gap-1.5">
+              <Calculator className="h-4 w-4 text-emerald-700" />
+              <span>Customer Disbursal & In-Hand Calculation</span>
+            </h4>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 bg-white rounded-xl border border-emerald-200">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Sanctioned Loan</span>
+                <span className="text-base font-extrabold text-slate-900 mt-0.5 block">
+                  {formatCurrency(principalAmount, currency)}
+                </span>
+              </div>
+
+              {shouldSettleOldLoan && (
+                <div className="p-3 bg-white rounded-xl border border-rose-200">
+                  <span className="text-[10px] uppercase font-bold text-rose-500 block">Old Loan Deducted</span>
+                  <span className="text-base font-extrabold text-rose-600 mt-0.5 block">
+                    -{formatCurrency(oldLoanDeduction, currency)}
+                  </span>
+                  <span className="text-[10px] text-slate-400">Previous balance cleared</span>
+                </div>
+              )}
+
+              <div className="p-3 bg-white rounded-xl border border-rose-200">
+                <span className="text-[10px] uppercase font-bold text-rose-500 block">File Charge Deducted</span>
+                <span className="text-base font-extrabold text-rose-600 mt-0.5 block">
+                  -{formatCurrency(feeAmount, currency)}
+                </span>
+                <span className="text-[10px] text-slate-400">Processing fee</span>
+              </div>
+
+              <div className="p-3 bg-emerald-600 text-white rounded-xl shadow-md">
+                <span className="text-[10px] uppercase font-bold text-emerald-100 block">Net In-Hand Disbursed</span>
+                <span className="text-lg font-black text-white mt-0.5 block">
+                  {formatCurrency(netInHandDisbursed, currency)}
+                </span>
+                <span className="text-[10px] text-emerald-100">Customer ko hath mein mila</span>
               </div>
             </div>
           </div>
@@ -493,17 +709,17 @@ function NewLoanContent() {
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                   <span className="h-5 w-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px]">3</span>
-                  <span>Calculated Repayment Summary & Schedule</span>
+                  <span>New Repayment Schedule ({calculationResult.numberOfInstallments} Installments)</span>
                 </label>
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
-                  {calculationResult.numberOfInstallments} Installments
+                <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                  Monthly EMI: {formatCurrency(calculationResult.installmentAmount, currency)}
                 </span>
               </div>
 
               {/* KPI Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                  <p className="text-[10px] uppercase font-bold text-slate-400">Principal Lent</p>
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Principal</p>
                   <p className="text-base font-extrabold text-slate-900 mt-0.5">
                     {formatCurrency(calculationResult.principal, currency)}
                   </p>
@@ -517,17 +733,17 @@ function NewLoanContent() {
                 </div>
 
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                  <p className="text-[10px] uppercase font-bold text-slate-400">Total Payable</p>
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Total Repayable</p>
                   <p className="text-base font-extrabold text-slate-900 mt-0.5">
                     {formatCurrency(calculationResult.totalPayable, currency)}
                   </p>
                 </div>
 
                 <div className="bg-indigo-50/60 p-3.5 rounded-xl border border-indigo-100">
-                  <p className="text-[10px] uppercase font-bold text-indigo-600">Installment Due</p>
+                  <p className="text-[10px] uppercase font-bold text-indigo-600">Fixed Monthly EMI</p>
                   <p className="text-base font-extrabold text-indigo-700 mt-0.5">
                     {formatCurrency(calculationResult.installmentAmount, currency)}
-                    <span className="text-[10px] font-normal text-indigo-500"> / {frequency}</span>
+                    <span className="text-[10px] font-normal text-indigo-500"> / mo</span>
                   </p>
                 </div>
               </div>
@@ -548,7 +764,7 @@ function NewLoanContent() {
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {calculationResult.schedule.map((item) => (
                       <tr key={item.installmentNumber} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 font-semibold text-slate-500">{item.installmentNumber}</td>
+                        <td className="py-2 px-3 font-semibold text-slate-500">#{item.installmentNumber}</td>
                         <td className="py-2 px-3 font-medium text-slate-900">{formatDate(item.dueDate)}</td>
                         <td className="py-2 px-3 text-slate-600">{formatCurrency(item.principalDue, currency)}</td>
                         <td className="py-2 px-3 text-slate-600">{formatCurrency(item.interestDue, currency)}</td>
@@ -580,7 +796,9 @@ function NewLoanContent() {
               ) : (
                 <>
                   <Check className="h-4 w-4" />
-                  <span>Confirm & Disburse Loan</span>
+                  <span>
+                    {shouldSettleOldLoan ? 'Settle Old Loan & Disburse Top-Up' : 'Confirm & Disburse Loan'}
+                  </span>
                 </>
               )}
             </button>
