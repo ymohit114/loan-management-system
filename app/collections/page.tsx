@@ -176,8 +176,100 @@ function CollectionsContent() {
             <p className="mt-1">All borrower payments are currently up to date.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <>
+            {/* Mobile Card View (md:hidden) */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredItems.map((item) => {
+                const days = Math.floor(item.days_overdue || 0);
+                const isOverdue = days > 0;
+                const isToday = days === 0;
+                const unpaid = item.total_due - item.amount_paid;
+
+                const waUrl = generateWhatsAppReminderUrl({
+                  phone: item.customer_phone,
+                  customerName: item.customer_name,
+                  loanCode: item.loan_code,
+                  amountDue: unpaid,
+                  dueDate: formatDate(item.due_date),
+                  currency,
+                  lenderName: settings?.lender_name || 'Apex Finance',
+                  isOverdue: isOverdue,
+                  daysOverdue: days,
+                });
+
+                return (
+                  <div key={item.id} className="p-4 space-y-3 hover:bg-slate-50/60 transition">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <Link href={`/customers/${item.customer_id}`} className="font-bold text-slate-900 text-sm hover:text-indigo-600 block">
+                          {item.customer_name}
+                        </Link>
+                        <a href={`tel:${item.customer_phone}`} className="text-xs text-slate-500 hover:text-indigo-600 mt-0.5 block">
+                          {item.customer_phone}
+                        </a>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-base font-extrabold ${isOverdue ? 'text-rose-600' : 'text-slate-900'}`}>
+                          {formatCurrency(unpaid, currency)}
+                        </p>
+                        <span className="text-[10px] text-slate-400">Amount Due</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-medium">Loan Code</span>
+                        <Link href={`/loans/${item.loan_id}`} className="font-mono font-bold text-slate-800 hover:text-indigo-600">
+                          {item.loan_code} <span className="font-sans font-normal text-slate-500">#{item.installment_number}</span>
+                        </Link>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-medium">Due Date</span>
+                        <span className="font-semibold text-slate-800">{formatDate(item.due_date)}</span>
+                      </div>
+                      <div>
+                        {isOverdue ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">
+                            {days}d Overdue
+                          </span>
+                        ) : isToday ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                            Due Today
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600">
+                            In {Math.abs(days)}d
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm"
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                        <span>WhatsApp Alert</span>
+                      </a>
+                      <button
+                        onClick={() => openRecordPayment({ id: item.loan_id } as any)}
+                        className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95"
+                      >
+                        <CreditCard className="h-4 w-4 text-emerald-400" />
+                        <span>Collect</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop / Tablet Table View (hidden on phones) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
                 <tr>
                   <th className="py-3.5 px-4">Borrower & Phone</th>
@@ -293,6 +385,7 @@ function CollectionsContent() {
               </tbody>
             </table>
           </div>
+        </>
         )}
       </div>
     </div>

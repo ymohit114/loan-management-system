@@ -109,19 +109,19 @@ export function CustomerModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto">
+      <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 bg-slate-50 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <div className="h-9 w-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
               <UserPlus className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base">
+              <h3 className="font-bold text-slate-900 text-sm sm:text-base">
                 {customerToEdit ? 'Edit Borrower Profile' : 'Add New Borrower'}
               </h3>
-              <p className="text-xs text-slate-500">Customer details, contact info & KYC</p>
+              <p className="text-[11px] sm:text-xs text-slate-500">Customer details, contact info & KYC</p>
             </div>
           </div>
           <button
@@ -133,7 +133,7 @@ export function CustomerModal({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
@@ -142,7 +142,7 @@ export function CustomerModal({
           )}
 
           {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Full Name <span className="text-rose-500">*</span>
@@ -172,7 +172,7 @@ export function CustomerModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Email Address
@@ -220,7 +220,7 @@ export function CustomerModal({
               <Shield className="h-3.5 w-3.5 text-indigo-600" />
               <span>Identity Verification (KYC)</span>
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-slate-600 mb-1">ID Type</label>
                 <select
@@ -256,7 +256,7 @@ export function CustomerModal({
               <UserCheck className="h-3.5 w-3.5 text-indigo-600" />
               <span>Guarantor / Reference Details</span>
             </p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
                 <label className="block text-[11px] text-slate-600 mb-1">Guarantor Name</label>
                 <input

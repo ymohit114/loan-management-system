@@ -84,32 +84,32 @@ export default function LoanDetailPage() {
           <span>Back to Loans</span>
         </Link>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <button
             onClick={handlePrintStatement}
-            className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition shadow-sm"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition shadow-sm"
           >
             <Printer className="h-4 w-4 text-slate-500" />
-            <span>Print Statement</span>
+            <span>Print</span>
           </button>
 
           {loan.status !== 'completed' && loan.balance > 0 && (
-            <div className="flex items-center gap-2">
+            <>
               <Link
                 href={`/loans/new?customer_id=${loan.customer_id}&settle_loan_id=${loan.id}`}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                <span>Top-Up / Re-loan</span>
+                <span>Top-Up</span>
               </Link>
               <button
                 onClick={() => openRecordPayment(loan)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95"
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95"
               >
                 <CreditCard className="h-4 w-4" />
                 <span>Collect Repayment</span>
               </button>
-            </div>
+            </>
           )}
         </div>
       </div>

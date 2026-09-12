@@ -145,17 +145,17 @@ export function RecordPaymentModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto">
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col my-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 bg-slate-50 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div className="h-9 w-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
               <CreditCard className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base">Record Repayment</h3>
-              <p className="text-xs text-slate-500">Collect loan installment or custom payment</p>
+              <h3 className="font-bold text-slate-900 text-sm sm:text-base">Record Repayment</h3>
+              <p className="text-[11px] sm:text-xs text-slate-500">Collect loan installment or custom payment</p>
             </div>
           </div>
           <button
@@ -167,7 +167,7 @@ export function RecordPaymentModal({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
@@ -238,7 +238,7 @@ export function RecordPaymentModal({
           </div>
 
           {/* Payment Method & Date */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Payment Mode
@@ -271,7 +271,7 @@ export function RecordPaymentModal({
           </div>
 
           {/* Reference No & Penalty */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Ref / Txn / Cheque No.

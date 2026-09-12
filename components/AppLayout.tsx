@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import { BottomNav } from './BottomNav';
 import { RecordPaymentModal } from './payments/RecordPaymentModal';
 import { ReceiptModal } from './payments/ReceiptModal';
 import { Loan, Payment, Settings } from '@/lib/types';
@@ -79,10 +80,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             lenderName={settings?.lender_name || 'Apex Financial Services'}
           />
 
-          <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+          <main className="flex-1 p-3 sm:p-5 md:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
             {children}
           </main>
         </div>
+
+        {/* Mobile Fixed Bottom Navigation */}
+        <BottomNav />
 
         {/* Global Modals */}
         <RecordPaymentModal

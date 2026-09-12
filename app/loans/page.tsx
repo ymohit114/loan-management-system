@@ -169,8 +169,112 @@ export default function LoansPage() {
             </Link>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[980px]">
+          <>
+            {/* Mobile Card View (Visible on phones & small screens) */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {loans.map((loan) => {
+                const progress = loan.total_payable > 0 ? Math.min(100, Math.round((loan.total_paid / loan.total_payable) * 100)) : 0;
+                const inHandAmount = loan.principal - (loan.processing_fee || 0);
+                const emiAmount = loan.tenure_value > 0 ? Math.round(loan.total_payable / loan.tenure_value) : 0;
+
+                return (
+                  <div key={loan.id} className="p-4 space-y-3 hover:bg-slate-50/60 transition">
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Link href={`/loans/${loan.id}`} className="font-mono font-bold text-slate-900 text-sm hover:text-indigo-600">
+                            {loan.loan_code}
+                          </Link>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                              loan.status === 'active'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : loan.status === 'completed'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {loan.status}
+                          </span>
+                        </div>
+                        <p className="font-bold text-slate-800 text-xs mt-1">{loan.customer_name}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{loan.customer_phone}</p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-[10px] text-slate-400 uppercase font-semibold">Balance Due</p>
+                        <p className={`font-extrabold text-sm ${loan.balance > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                          {loan.balance <= 0 ? 'PAID OFF' : formatCurrency(loan.balance, currency)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Financial 3-Pill Strip */}
+                    <div className="grid grid-cols-3 gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-medium">Sanctioned</span>
+                        <span className="font-bold text-slate-900">{formatCurrency(loan.principal, currency)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-rose-600 block font-medium">File Charge</span>
+                        <span className="font-bold text-rose-600">-{formatCurrency(loan.processing_fee || 0, currency)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-emerald-700 block font-bold">In-Hand Cash</span>
+                        <span className="font-extrabold text-emerald-700">{formatCurrency(inHandAmount, currency)}</span>
+                      </div>
+                    </div>
+
+                    {/* EMI & Progress */}
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-slate-600">
+                          EMI: <strong className="text-slate-900">{formatCurrency(emiAmount, currency)}/mo</strong> ({loan.tenure_value} EMIs)
+                        </span>
+                        <span className="text-slate-400 font-semibold">{progress}% Repaid</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            loan.status === 'completed'
+                              ? 'bg-indigo-600'
+                              : loan.status === 'overdue'
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2 pt-1">
+                      {loan.status !== 'completed' && loan.balance > 0 && (
+                        <button
+                          onClick={() => openRecordPayment(loan)}
+                          className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95"
+                        >
+                          <CreditCard className="h-3.5 w-3.5 text-emerald-400" />
+                          <span>Collect Payment</span>
+                        </button>
+                      )}
+                      <Link
+                        href={`/loans/${loan.id}`}
+                        className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition"
+                      >
+                        <span>Ledger</span>
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop / Tablet Table View (hidden on phones) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left text-xs min-w-[980px]">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
                 <tr>
                   <th className="py-3.5 px-4">Loan Code & Customer</th>
@@ -320,6 +424,7 @@ export default function LoansPage() {
               </tbody>
             </table>
           </div>
+        </>
         )}
       </div>
     </div>
