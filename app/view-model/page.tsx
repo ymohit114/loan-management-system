@@ -32,7 +32,8 @@ import {
   X,
   UserCheck,
   CheckSquare,
-  Square
+  Square,
+  CalendarCheck
 } from 'lucide-react';
 import { generateSimulationData, SimulationMonthData } from '@/lib/simulation';
 import { BASE_43_BORROWERS, BorrowerProfile } from '@/lib/borrowersData';
@@ -50,8 +51,9 @@ export default function ViewModelPage() {
   const [monthlyEmi, setMonthlyEmi] = useState(4050);
   const [reinvestFileCharges, setReinvestFileCharges] = useState(false);
 
-  // Dynamic Refinancing Configuration (Month 16 Milestone)
+  // Dynamic Refinancing Configuration (Configurable for ANY Month: 16, 17, 18...)
   const [refinanceEnabled, setRefinanceEnabled] = useState(true);
+  const [refinanceAtMonth, setRefinanceAtMonth] = useState(16); // User can change to 16, 17, 18, 19, etc.
   const [refinanceCount, setRefinanceCount] = useState(8);
   const [refinanceSanctioned, setRefinanceSanctioned] = useState(80000);
   const [refinanceFileCharge, setRefinanceFileCharge] = useState(6000);
@@ -59,7 +61,7 @@ export default function ViewModelPage() {
   const [refinanceTenureMonths, setRefinanceTenureMonths] = useState(30);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
 
-  // Specific Borrowers Selection for Month 16
+  // Specific Borrowers Selection for Refinancing
   const [selectedBorrowerIds, setSelectedBorrowerIds] = useState<number[]>([1, 2, 3, 4, 5, 6, 7, 8]);
   const [isBorrowerModalOpen, setIsBorrowerModalOpen] = useState(false);
   const [borrowerSearchQuery, setBorrowerSearchQuery] = useState('');
@@ -91,7 +93,7 @@ export default function ViewModelPage() {
     setSelectedBorrowerIds(BASE_43_BORROWERS.slice(0, safeCount).map((b) => b.id));
   };
 
-  // Generate full 30 months data
+  // Generate full 30 months data dynamically based on refinanceAtMonth
   const simulationData = React.useMemo(() => {
     return generateSimulationData({
       initialLoans,
@@ -102,7 +104,7 @@ export default function ViewModelPage() {
       totalMonths: 30, // Full 30 months
       reinvestFileCharges,
       refinanceEnabled,
-      refinanceAtMonth: 16,
+      refinanceAtMonth,
       refinanceCount,
       refinanceSanctioned,
       refinanceFileCharge,
@@ -116,6 +118,7 @@ export default function ViewModelPage() {
     monthlyEmi,
     reinvestFileCharges,
     refinanceEnabled,
+    refinanceAtMonth,
     refinanceCount,
     refinanceSanctioned,
     refinanceFileCharge,
@@ -126,15 +129,15 @@ export default function ViewModelPage() {
   // Current active month data
   const currentMonthData: SimulationMonthData = simulationData[currentMonthIndex - 1] || simulationData[0];
 
-  // Auto-play timer (auto-pauses at Month 16 for live presentation discussion)
+  // Auto-play timer (auto-pauses at whichever refinance month is chosen)
   useEffect(() => {
     if (isPlaying) {
       timerRef.current = setInterval(() => {
         setCurrentMonthIndex((prev) => {
-          if (prev === 15) {
-            // Auto pause at Month 16 milestone so presenter can demonstrate refinancing
+          if (prev === refinanceAtMonth - 1) {
+            // Auto pause at refinance milestone so presenter can discuss
             setIsPlaying(false);
-            return 16;
+            return refinanceAtMonth;
           }
           if (prev >= simulationData.length) {
             setIsPlaying(false);
@@ -149,7 +152,7 @@ export default function ViewModelPage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isPlaying, simulationData.length]);
+  }, [isPlaying, simulationData.length, refinanceAtMonth]);
 
   const handleNextMonth = () => {
     if (currentMonthIndex < simulationData.length) {
@@ -170,18 +173,18 @@ export default function ViewModelPage() {
 
   const inHandRequired = loanPrincipal - fileCharge;
 
-  // Refinancing Calculations for Month 16
-  const oldEmisLeft = 4; // 20 - 16
-  const oldSettledPerPerson = oldEmisLeft * monthlyEmi; // 16,200
-  const netInHandPerPerson = refinanceSanctioned - refinanceFileCharge - oldSettledPerPerson; // 57,800
-  const totalRefinanceCashRequired = refinanceCount * netInHandPerPerson; // e.g. 4,62,400 for 8, 5,78,000 for 10
+  // DYNAMIC REFINANCING CALCULATIONS BASED ON SELECTED MONTH (Month 16, 17, 18...)
+  const oldEmisLeft = Math.max(0, 20 - refinanceAtMonth);
+  const oldSettledPerPerson = oldEmisLeft * monthlyEmi;
+  const netInHandPerPerson = refinanceSanctioned - refinanceFileCharge - oldSettledPerPerson;
+  const totalRefinanceCashRequired = selectedBorrowerIds.length * netInHandPerPerson;
   
-  // Find Month 16 data to check available pool
-  const month16Data = simulationData.find((d) => d.month === 16);
-  const m16AvailablePool = month16Data ? month16Data.availablePool : 0;
-  const maxAffordableBorrowers = netInHandPerPerson > 0 ? Math.floor(m16AvailablePool / netInHandPerPerson) : 0;
-  const isBudgetExceeded = totalRefinanceCashRequired > m16AvailablePool;
-  const budgetDeficitAmount = Math.max(0, totalRefinanceCashRequired - m16AvailablePool);
+  // Find data for the chosen refinancing month to check available pool
+  const refinanceMonthData = simulationData.find((d) => d.month === refinanceAtMonth);
+  const targetAvailablePool = refinanceMonthData ? refinanceMonthData.availablePool : 0;
+  const maxAffordableBorrowers = netInHandPerPerson > 0 ? Math.floor(targetAvailablePool / netInHandPerPerson) : 0;
+  const isBudgetExceeded = totalRefinanceCashRequired > targetAvailablePool;
+  const budgetDeficitAmount = Math.max(0, totalRefinanceCashRequired - targetAvailablePool);
 
   // Filter borrowers in search modal
   const filteredBorrowers = BASE_43_BORROWERS.filter((b) => 
@@ -207,7 +210,7 @@ export default function ViewModelPage() {
             <span>Cashflow Multiplier & Reinvestment Simulator</span>
           </h1>
           <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            Har mahine aane wali EMI collection se naye loans pass hote hain. <strong>Month 16</strong> aane par purane customers ko <strong>₹80,000</strong> ka renewal loan diya jaata hai jisme se purani 4 EMIs deduct hoti hain.
+            Har mahine aane wali EMI collection se naye loans pass hote hain. <strong>Month {refinanceAtMonth}</strong> (ya aapke pasandida kisi bhi month) me purane customers ko <strong>₹80,000</strong> ka renewal loan diya jaata hai jisme se baaki bachi EMIs auto-deduct hoti hain.
           </p>
         </div>
 
@@ -223,15 +226,15 @@ export default function ViewModelPage() {
               <strong className="text-slate-900">{formatCurrency(loanPrincipal, currency)} @ {formatCurrency(monthlyEmi, currency)}/mo</strong>
             </div>
             <div className="flex items-center justify-between gap-4 text-slate-500">
-              <span>Month 16 Renewal:</span>
-              <strong className="text-amber-700">{selectedBorrowerIds.length} Persons @ {formatCurrency(refinanceSanctioned, currency)}</strong>
+              <span>Refinance Active:</span>
+              <strong className="text-amber-700">Month {refinanceAtMonth} ({selectedBorrowerIds.length} Persons @ {formatCurrency(refinanceSanctioned, currency)})</strong>
             </div>
           </div>
 
           <button
             onClick={() => setShowConfigPanel(!showConfigPanel)}
             className="p-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-2xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
-            title="Configure Month 16 Refinancing Parameters"
+            title="Configure Refinancing Parameters"
           >
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">Refinance Setup</span>
@@ -248,9 +251,9 @@ export default function ViewModelPage() {
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-300">
                 Simulated Timeline
               </span>
-              {currentMonthIndex === 16 && (
+              {currentMonthIndex === refinanceAtMonth && (
                 <span className="px-2 py-0.5 bg-amber-500 text-slate-950 rounded-full font-black text-[10px] animate-pulse">
-                  🌟 Month 16 Refinancing Active
+                  🌟 Month {refinanceAtMonth} Refinancing Active
                 </span>
               )}
             </div>
@@ -279,20 +282,20 @@ export default function ViewModelPage() {
               <span>Prev Month</span>
             </button>
 
-            {/* Jump to Month 16 Shortcut */}
+            {/* Jump to Refinancing Month Shortcut */}
             <button
               onClick={() => {
                 setIsPlaying(false);
-                setCurrentMonthIndex(16);
+                setCurrentMonthIndex(refinanceAtMonth);
               }}
               className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 ${
-                currentMonthIndex === 16
+                currentMonthIndex === refinanceAtMonth
                   ? 'bg-amber-500 text-slate-950 font-black shadow-md'
                   : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
               }`}
             >
               <Sparkles className="h-3.5 w-3.5" />
-              <span>Month 16 Setup</span>
+              <span>Month {refinanceAtMonth} Setup</span>
             </button>
 
             {/* Next Month Button (Hero CTA) */}
@@ -333,7 +336,7 @@ export default function ViewModelPage() {
         <div className="mt-6 pt-4 border-t border-slate-800/80">
           <div className="flex justify-between items-center text-xs font-semibold text-slate-400 mb-2">
             <span>Month 1 (Base 43 Loans)</span>
-            <span className="text-amber-300 font-bold">Month 16 (Refinance Milestone)</span>
+            <span className="text-amber-300 font-bold">Month {refinanceAtMonth} (Refinance Event)</span>
             <span className="text-indigo-300 font-bold">Month {currentMonthIndex} of {simulationData.length}</span>
             <span>Month 30 (Matured Cycle)</span>
           </div>
@@ -351,51 +354,59 @@ export default function ViewModelPage() {
         </div>
       </div>
 
-      {/* MONTH 16 REFINANCING INTERACTIVE COMMAND CENTER (Visible when Month 16 is selected or config panel is toggled) */}
-      {(currentMonthIndex === 16 || showConfigPanel) && (
+      {/* DYNAMIC REFINANCING COMMAND CENTER (Visible when currentMonthIndex === refinanceAtMonth or config panel is toggled) */}
+      {(currentMonthIndex === refinanceAtMonth || showConfigPanel) && (
         <div className="p-5 md:p-6 bg-gradient-to-br from-amber-500/10 via-white to-amber-500/5 rounded-3xl border-2 border-amber-400/80 shadow-lg space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-amber-200">
+          {/* Header & Month Chooser */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-amber-200">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1">
                   <Sparkles className="h-3.5 w-3.5 fill-current" />
-                  Month 16 Refinancing Milestone
+                  Month {refinanceAtMonth} Refinancing Milestone
                 </span>
                 <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
-                  80% Repayment Complete (16 of 20 EMIs Paid)
+                  {refinanceAtMonth} EMIs Paid • {oldEmisLeft} EMIs Remaining
                 </span>
               </div>
               <h2 className="text-xl md:text-2xl font-black text-slate-900 mt-1">
-                Existing Customers Renewal & Cash Pool Budget Control
+                Refinancing Month & Cash Pool Budget Control
               </h2>
               <p className="text-xs text-slate-600 mt-0.5">
-                Aap yaha decide kar sakte hain ki Month 16 me kin 8 borrowers ko renew karna hai, kitna naya loan aur file charge lena hai.
+                Aap decide karein ki kis month me renewal loan dena hai (16, 17, 18 etc.) aur kin borrowers ko select karna hai.
               </p>
             </div>
 
-            {/* Quick Presets & Borrower Picker Button */}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setIsBorrowerModalOpen(true)}
-                className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 transition active:scale-95"
-              >
-                <Users className="h-4 w-4" />
-                <span>Choose 8 Borrowers ({selectedBorrowerIds.length})</span>
-              </button>
+            {/* Quick Month Switcher Pills */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex items-center gap-1 bg-white p-1 rounded-2xl border border-amber-300 shadow-sm">
+                <span className="text-[10px] font-black uppercase text-slate-400 px-2">Trigger Month:</span>
+                {[15, 16, 17, 18, 19, 20].map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      setRefinanceAtMonth(m);
+                      setCurrentMonthIndex(m);
+                    }}
+                    className={`px-2.5 py-1 rounded-xl text-xs font-black transition ${
+                      refinanceAtMonth === m
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'text-slate-600 hover:bg-amber-50'
+                    }`}
+                  >
+                    M{m}
+                  </button>
+                ))}
+              </div>
 
-              <button
-                onClick={() => {
-                  handleSelectFirstN(8);
-                  setRefinanceSanctioned(80000);
-                  setRefinanceFileCharge(6000);
-                  setRefinanceMonthlyEmi(4050);
-                  setRefinanceTenureMonths(30);
-                }}
-                className="px-3 py-2 bg-white hover:bg-amber-100 text-slate-700 border border-amber-300 rounded-xl text-xs font-bold shadow-sm transition"
-              >
-                Reset Default 8
-              </button>
+              {currentMonthIndex !== refinanceAtMonth && (
+                <button
+                  onClick={() => setRefinanceAtMonth(currentMonthIndex)}
+                  className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition whitespace-nowrap"
+                >
+                  Set to M{currentMonthIndex}
+                </button>
+              )}
             </div>
           </div>
 
@@ -408,10 +419,10 @@ export default function ViewModelPage() {
                 </div>
                 <div>
                   <h4 className="text-sm font-black text-rose-900 uppercase tracking-wide">
-                    ⚠️ Collection Pool Exceeded! (Cash Shortage Alert)
+                    ⚠️ Month {refinanceAtMonth} Collection Pool Exceeded! (Cash Shortage Alert)
                   </h4>
                   <p className="text-xs text-rose-700 mt-1">
-                    Aapne <strong>{refinanceCount} customers</strong> select kiye hain jinko in-hand dene ke liye <strong>{formatCurrency(totalRefinanceCashRequired, currency)}</strong> cash chahiye, jabki Month 16 ka available collection pool sirf <strong>{formatCurrency(m16AvailablePool, currency)}</strong> hai.
+                    Aapne <strong>{selectedBorrowerIds.length} customers</strong> select kiye hain jinko in-hand dene ke liye <strong>{formatCurrency(totalRefinanceCashRequired, currency)}</strong> cash chahiye, jabki Month {refinanceAtMonth} ka available collection pool sirf <strong>{formatCurrency(targetAvailablePool, currency)}</strong> hai.
                   </p>
                   <p className="text-xs font-bold text-rose-800 mt-1">
                     Shortage (Deficit): <span className="underline">{formatCurrency(budgetDeficitAmount, currency)}</span>
@@ -435,10 +446,10 @@ export default function ViewModelPage() {
                 </div>
                 <div>
                   <p className="text-xs font-black text-emerald-900 uppercase">
-                    ✅ Cash Pool Budget Approved & Sufficient!
+                    ✅ Month {refinanceAtMonth} Cash Pool Budget Approved & Sufficient!
                   </p>
                   <p className="text-xs text-emerald-700">
-                    Month 16 Available Pool: <strong>{formatCurrency(m16AvailablePool, currency)}</strong> | Required for {refinanceCount} Renewals: <strong>{formatCurrency(totalRefinanceCashRequired, currency)}</strong> | Surplus: <strong>{formatCurrency(m16AvailablePool - totalRefinanceCashRequired, currency)}</strong>
+                    Month {refinanceAtMonth} Pool: <strong>{formatCurrency(targetAvailablePool, currency)}</strong> | Required for {selectedBorrowerIds.length} Renewals: <strong>{formatCurrency(totalRefinanceCashRequired, currency)}</strong> | Surplus: <strong>{formatCurrency(targetAvailablePool - totalRefinanceCashRequired, currency)}</strong>
                   </p>
                 </div>
               </div>
@@ -450,21 +461,37 @@ export default function ViewModelPage() {
           )}
 
           {/* DYNAMIC INPUTS FORM GRID */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            {/* Input 1: Persons to Renew */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            {/* Input 1: Refinance Month */}
+            <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
+              <label className="text-[11px] font-bold text-slate-600 uppercase">Refinance Month</label>
+              <div className="relative mt-1">
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={refinanceAtMonth}
+                  onChange={(e) => setRefinanceAtMonth(Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 16)))}
+                  className="w-full text-center font-black text-indigo-700 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-amber-500 outline-none"
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 text-center">Month {refinanceAtMonth} par trigger hoga</p>
+            </div>
+
+            {/* Input 2: Persons to Renew */}
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-slate-600 uppercase">Borrowers to Renew</label>
+                <label className="text-[11px] font-bold text-slate-600 uppercase">Borrowers</label>
                 <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                  {selectedBorrowerIds.length} Selected
+                  {selectedBorrowerIds.length}
                 </span>
               </div>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-1.5 mt-1">
                 <button
                   onClick={() => handleSetRefinanceCount(selectedBorrowerIds.length - 1)}
-                  className="h-8 w-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
+                  className="h-7 w-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
                 >
-                  <Minus className="h-3.5 w-3.5" />
+                  <Minus className="h-3 w-3" />
                 </button>
                 <input
                   type="number"
@@ -472,77 +499,77 @@ export default function ViewModelPage() {
                   max="43"
                   value={refinanceCount}
                   onChange={(e) => handleSetRefinanceCount(parseInt(e.target.value, 10) || 1)}
-                  className="w-full text-center font-black text-slate-900 text-lg border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-amber-500 outline-none"
+                  className="w-full text-center font-black text-slate-900 text-base border border-slate-200 rounded-lg py-0.5 focus:ring-2 focus:ring-amber-500 outline-none"
                 />
                 <button
                   onClick={() => handleSetRefinanceCount(selectedBorrowerIds.length + 1)}
-                  className="h-8 w-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
+                  className="h-7 w-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
                 >
-                  <Plus className="h-3.5 w-3.5" />
+                  <Plus className="h-3 w-3" />
                 </button>
               </div>
               
               <button
                 type="button"
                 onClick={() => setIsBorrowerModalOpen(true)}
-                className="w-full mt-2 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95"
+                className="w-full mt-1.5 px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 shadow-sm transition active:scale-95"
               >
-                <Users className="h-3.5 w-3.5" />
-                <span>Pick Borrowers ({selectedBorrowerIds.length})</span>
+                <Users className="h-3 w-3" />
+                <span>Pick ({selectedBorrowerIds.length})</span>
               </button>
             </div>
 
-            {/* Input 2: New Sanctioned Loan */}
+            {/* Input 3: New Sanctioned Loan */}
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
-              <label className="text-[11px] font-bold text-slate-600 uppercase">New Sanctioned</label>
+              <label className="text-[11px] font-bold text-slate-600 uppercase">Sanctioned</label>
               <div className="relative mt-1">
-                <span className="absolute left-2.5 top-2 text-xs font-bold text-slate-400">{currency}</span>
+                <span className="absolute left-2 top-1.5 text-xs font-bold text-slate-400">{currency}</span>
                 <input
                   type="number"
                   step="5000"
                   value={refinanceSanctioned}
                   onChange={(e) => setRefinanceSanctioned(parseInt(e.target.value, 10) || 0)}
-                  className="w-full pl-7 pr-2 font-black text-slate-900 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-amber-500 outline-none"
+                  className="w-full pl-6 pr-2 font-black text-slate-900 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-amber-500 outline-none"
                 />
               </div>
-              <p className="text-[10px] text-slate-400">Approved loan amount</p>
+              <p className="text-[10px] text-slate-400">Approved loan</p>
             </div>
 
-            {/* Input 3: New File Charge */}
+            {/* Input 4: New File Charge */}
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
-              <label className="text-[11px] font-bold text-slate-600 uppercase">New File Charge</label>
+              <label className="text-[11px] font-bold text-slate-600 uppercase">File Charge</label>
               <div className="relative mt-1">
-                <span className="absolute left-2.5 top-2 text-xs font-bold text-slate-400">{currency}</span>
+                <span className="absolute left-2 top-1.5 text-xs font-bold text-slate-400">{currency}</span>
                 <input
                   type="number"
                   step="500"
                   value={refinanceFileCharge}
                   onChange={(e) => setRefinanceFileCharge(parseInt(e.target.value, 10) || 0)}
-                  className="w-full pl-7 pr-2 font-black text-purple-700 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-purple-500 outline-none"
+                  className="w-full pl-6 pr-2 font-black text-purple-700 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-purple-500 outline-none"
                 />
               </div>
               <p className="text-[10px] text-purple-600">Upfront instant fee</p>
             </div>
 
-            {/* Input 4: New Monthly EMI */}
+            {/* Input 5: New Monthly EMI */}
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
-              <label className="text-[11px] font-bold text-slate-600 uppercase">New Monthly EMI</label>
+              <label className="text-[11px] font-bold text-slate-600 uppercase">New EMI</label>
               <div className="relative mt-1">
-                <span className="absolute left-2.5 top-2 text-xs font-bold text-slate-400">{currency}</span>
+                <span className="absolute left-2 top-1.5 text-xs font-bold text-slate-400">{currency}</span>
                 <input
                   type="number"
                   step="50"
                   value={refinanceMonthlyEmi}
                   onChange={(e) => setRefinanceMonthlyEmi(parseInt(e.target.value, 10) || 0)}
-                  className="w-full pl-7 pr-2 font-black text-blue-700 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full pl-6 pr-2 font-black text-blue-700 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
-              <p className="text-[10px] text-blue-600">Month 17 se start hogi</p>
+              <p className="text-[10px] text-blue-600">Month {refinanceAtMonth + 1} se start</p>
             </div>
 
-            {/* Input 5: Tenure */}
+            {/* Input 6: Tenure */}
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
-              <label className="text-[11px] font-bold text-slate-600 uppercase">New Duration</label>
+              <label className="text-[11px] font-bold text-slate-600 uppercase">Duration</label>
               <div className="relative mt-1">
                 <input
                   type="number"
@@ -550,11 +577,11 @@ export default function ViewModelPage() {
                   max="60"
                   value={refinanceTenureMonths}
                   onChange={(e) => setRefinanceTenureMonths(parseInt(e.target.value, 10) || 30)}
-                  className="w-full pr-14 pl-3 font-black text-slate-900 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-amber-500 outline-none"
+                  className="w-full pr-12 pl-2 font-black text-slate-900 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-amber-500 outline-none"
                 />
-                <span className="absolute right-2.5 top-2 text-xs font-bold text-slate-400">Months</span>
+                <span className="absolute right-2 top-1.5 text-xs font-bold text-slate-400">Mo</span>
               </div>
-              <p className="text-[10px] text-slate-400">{refinanceTenureMonths} installments total</p>
+              <p className="text-[10px] text-slate-400">{refinanceTenureMonths} installments</p>
             </div>
           </div>
 
@@ -566,7 +593,7 @@ export default function ViewModelPage() {
                   {selectedBorrowerIds.length}
                 </span>
                 <h4 className="text-xs font-black text-slate-900 uppercase tracking-wide">
-                  Selected Customers for ₹80,000 Refinance ({selectedBorrowerIds.length} Borrowers)
+                  Selected Customers for ₹80,000 Refinance at Month {refinanceAtMonth} ({selectedBorrowerIds.length} Borrowers)
                 </h4>
               </div>
 
@@ -626,13 +653,13 @@ export default function ViewModelPage() {
             </div>
           </div>
 
-          {/* PER-BORROWER & COMBINED DEDUCTION AUDIT CARD */}
+          {/* PER-BORROWER & COMBINED DEDUCTION AUDIT CARD (DYNAMIC MONTH MATH) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Left Card: 1 Customer Formula */}
             <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-sm space-y-2 text-xs">
               <span className="text-[11px] font-black text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Receipt className="h-4 w-4" />
-                Per Customer Net In-Hand Formula
+                Per Customer Net In-Hand Formula (At Month {refinanceAtMonth})
               </span>
               <div className="space-y-1.5 pt-1">
                 <div className="flex justify-between text-slate-600">
@@ -644,7 +671,9 @@ export default function ViewModelPage() {
                   <strong>-{formatCurrency(refinanceFileCharge, currency)}</strong>
                 </div>
                 <div className="flex justify-between text-rose-600">
-                  <span>3. Old 4 Remaining EMIs Deducted ({oldEmisLeft} $\times$ {formatCurrency(monthlyEmi, currency)}):</span>
+                  <span>
+                    3. Old {oldEmisLeft} Remaining EMIs Deducted ({oldEmisLeft} $\times$ {formatCurrency(monthlyEmi, currency)}):
+                  </span>
                   <strong>-{formatCurrency(oldSettledPerPerson, currency)}</strong>
                 </div>
                 <div className="border-t border-slate-200 pt-1.5 flex justify-between text-sm font-black text-emerald-800">
@@ -654,27 +683,27 @@ export default function ViewModelPage() {
               </div>
             </div>
 
-            {/* Right Card: All Borrowers Impact on Month 16 Pool */}
+            {/* Right Card: All Borrowers Impact on Pool */}
             <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-sm space-y-2 text-xs">
               <span className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Wallet className="h-4 w-4 text-indigo-600" />
-                Month 16 Cashflow & Profit Impact ({refinanceCount} Borrowers)
+                Month {refinanceAtMonth} Cashflow Impact ({selectedBorrowerIds.length} Borrowers)
               </span>
               <div className="space-y-1.5 pt-1">
                 <div className="flex justify-between text-slate-600">
-                  <span>Total Sanctioned ({refinanceCount} $\times$ {formatCurrency(refinanceSanctioned, currency)}):</span>
-                  <strong className="text-slate-900">{formatCurrency(refinanceCount * refinanceSanctioned, currency)}</strong>
+                  <span>Total Sanctioned ({selectedBorrowerIds.length} $\times$ {formatCurrency(refinanceSanctioned, currency)}):</span>
+                  <strong className="text-slate-900">{formatCurrency(selectedBorrowerIds.length * refinanceSanctioned, currency)}</strong>
                 </div>
                 <div className="flex justify-between text-purple-700 font-bold">
-                  <span>Instant File Charge Profit ({refinanceCount} $\times$ {formatCurrency(refinanceFileCharge, currency)}):</span>
-                  <span>+{formatCurrency(refinanceCount * refinanceFileCharge, currency)}</span>
+                  <span>Instant File Charge Profit ({selectedBorrowerIds.length} $\times$ {formatCurrency(refinanceFileCharge, currency)}):</span>
+                  <span>+{formatCurrency(selectedBorrowerIds.length * refinanceFileCharge, currency)}</span>
                 </div>
                 <div className="flex justify-between text-blue-700">
                   <span>Old Loans Recovered / Settled:</span>
-                  <strong>{formatCurrency(refinanceCount * oldSettledPerPerson, currency)}</strong>
+                  <strong>{formatCurrency(selectedBorrowerIds.length * oldSettledPerPerson, currency)}</strong>
                 </div>
                 <div className="border-t border-slate-200 pt-1.5 flex justify-between text-sm font-black text-slate-900">
-                  <span>Net In-Hand Cash Paid from Pool:</span>
+                  <span>Net In-Hand Cash Paid from Month {refinanceAtMonth} Pool:</span>
                   <span className={isBudgetExceeded ? 'text-rose-600 text-base' : 'text-indigo-600 text-base'}>
                     {formatCurrency(totalRefinanceCashRequired, currency)}
                   </span>
@@ -694,7 +723,7 @@ export default function ViewModelPage() {
               <div>
                 <h3 className="font-black text-slate-900 text-lg flex items-center gap-2">
                   <Users className="h-5 w-5 text-amber-500" />
-                  <span>Select Borrowers for Month 16 Refinancing</span>
+                  <span>Select Borrowers for Month {refinanceAtMonth} Refinancing</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Initial 43 customers me se choose karein jinko ₹80,000 ka naya loan pass karna hai.
@@ -748,7 +777,7 @@ export default function ViewModelPage() {
                   : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
               }`}>
                 <span>Selected: {selectedBorrowerIds.length} Borrowers ({formatCurrency(selectedBorrowerIds.length * netInHandPerPerson, currency)} in-hand cash)</span>
-                <span>Max Affordable: {maxAffordableBorrowers} Borrowers</span>
+                <span>Max Affordable in M{refinanceAtMonth}: {maxAffordableBorrowers} Borrowers</span>
               </div>
             </div>
 
@@ -782,7 +811,7 @@ export default function ViewModelPage() {
                         <p className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
                           <span>{borrower.name}</span>
                           <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-semibold border border-emerald-200">
-                            16 EMIs Paid
+                            {refinanceAtMonth} EMIs Paid
                           </span>
                         </p>
                         <p className="text-[11px] text-slate-500">{borrower.phone} • {borrower.area}</p>
@@ -844,14 +873,14 @@ export default function ViewModelPage() {
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-emerald-200/80 bg-emerald-50/20 shadow-sm hover:shadow-md transition">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
-              {currentMonthData.month === 16 ? 'Disbursal Summary' : 'New Loans Passed'}
+              {currentMonthData.month === refinanceAtMonth ? 'Disbursal Summary' : 'New Loans Passed'}
             </span>
             <div className="h-9 w-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
               <Landmark className="h-5 w-5" />
             </div>
           </div>
           <p className="text-2xl font-black text-emerald-700 mt-2">
-            {currentMonthData.month === 16 ? (
+            {currentMonthData.month === refinanceAtMonth ? (
               <span>+{selectedBorrowerIds.length} Renewals</span>
             ) : (
               <span>+{currentMonthData.newLoansFunded} Loans</span>
@@ -917,14 +946,14 @@ export default function ViewModelPage() {
 
           <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-1">
             <span className="text-[10px] uppercase font-bold text-emerald-800">
-              {currentMonthData.month === 16 ? 'Step 3: Loans & Renewals' : 'Step 3: New Loans Passed'}
+              {currentMonthData.month === refinanceAtMonth ? 'Step 3: Loans & Renewals' : 'Step 3: New Loans Passed'}
             </span>
             <p className="text-sm font-black text-emerald-700">
               {formatCurrency(currentMonthData.newDisbursedInHand, currency)} Disbursed
             </p>
             <p className="text-emerald-800">
-              {currentMonthData.month === 16 
-                ? `${selectedBorrowerIds.length} renewed @ ₹57.8k in-hand + ${currentMonthData.newLoansFunded} regular loans` 
+              {currentMonthData.month === refinanceAtMonth 
+                ? `${selectedBorrowerIds.length} renewed @ ${formatCurrency(netInHandPerPerson, currency)} in-hand + ${currentMonthData.newLoansFunded} regular loans` 
                 : `${currentMonthData.newLoansFunded} new loans @ ₹55,000 in-hand cash`}
             </p>
           </div>
@@ -946,14 +975,14 @@ export default function ViewModelPage() {
               <span>Full 30-Month Compounding & Refinancing Ledger Table</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Click any row to jump to that month. Row with glowing border is the current simulated month. Month 16 features refinancing milestone.
+              Click any row to jump to that month. Row with glowing border is the current simulated month. Month {refinanceAtMonth} features refinancing milestone.
             </p>
           </div>
 
           <div className="flex items-center gap-3 text-xs">
             <span className="flex items-center gap-1.5 text-amber-700 font-bold bg-amber-50 px-2 py-1 rounded-md border border-amber-200">
               <Sparkles className="h-3 w-3" />
-              <span>Month 16 = Refinancing Event</span>
+              <span>Month {refinanceAtMonth} = Refinancing Event</span>
             </span>
           </div>
         </div>
@@ -976,7 +1005,7 @@ export default function ViewModelPage() {
             <tbody className="divide-y divide-slate-100 font-medium">
               {simulationData.map((row) => {
                 const isCurrent = row.month === currentMonthIndex;
-                const isMonth16 = row.month === 16;
+                const isRefinanceMonth = row.month === refinanceAtMonth;
 
                 return (
                   <tr
@@ -988,7 +1017,7 @@ export default function ViewModelPage() {
                     className={`cursor-pointer transition-all ${
                       isCurrent
                         ? 'bg-indigo-50/90 font-bold text-slate-900 border-l-4 border-indigo-600 shadow-sm'
-                        : isMonth16
+                        : isRefinanceMonth
                         ? 'bg-amber-50/40 hover:bg-amber-50/70 border-l-4 border-amber-400'
                         : 'hover:bg-slate-50/80 text-slate-700'
                     }`}
@@ -999,7 +1028,7 @@ export default function ViewModelPage() {
                         <span className={`h-6 w-6 rounded-lg text-xs font-bold flex items-center justify-center ${
                           isCurrent
                             ? 'bg-indigo-600 text-white shadow-sm'
-                            : isMonth16
+                            : isRefinanceMonth
                             ? 'bg-amber-500 text-slate-950 font-black'
                             : 'bg-slate-100 text-slate-700'
                         }`}>
@@ -1008,7 +1037,7 @@ export default function ViewModelPage() {
                         <div>
                           <p className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
                             <span>Month {row.month}</span>
-                            {isMonth16 && (
+                            {isRefinanceMonth && (
                               <span className="px-1.5 py-0.2 bg-amber-200 text-amber-900 text-[10px] font-black rounded">
                                 Refinance
                               </span>
@@ -1036,7 +1065,7 @@ export default function ViewModelPage() {
 
                     {/* Disbursal Action */}
                     <td className="py-3.5 px-4 whitespace-nowrap bg-emerald-50/40">
-                      {isMonth16 ? (
+                      {isRefinanceMonth ? (
                         <div className="flex flex-col gap-0.5">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-200 text-amber-950 font-black text-xs">
                             🔄 {selectedBorrowerIds.length} Renewed (₹80k)
@@ -1088,5 +1117,6 @@ export default function ViewModelPage() {
     </div>
   );
 }
+
 
 
