@@ -189,6 +189,7 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
       if (!refIsDeficit) {
         // Disburse refinancing loans
         pool -= refTotalNetRequired;
+        newDisbursedInHand += refTotalNetRequired;
         newFileChargesEarned += refFileChargesTotal;
         cumulativeDisbursed += refTotalNetRequired;
 
@@ -211,6 +212,7 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
         if (affordableCount > 0) {
           const disbursed = affordableCount * refNetInHandPerPerson;
           pool -= disbursed;
+          newDisbursedInHand += disbursed;
           const fee = affordableCount * refFileChargePerPerson;
           newFileChargesEarned += fee;
           cumulativeDisbursed += disbursed;
