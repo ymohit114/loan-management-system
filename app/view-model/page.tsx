@@ -26,9 +26,16 @@ import {
   Settings,
   Plus,
   Minus,
-  Check
+  Check,
+  Search,
+  UserPlus,
+  X,
+  UserCheck,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { generateSimulationData, SimulationMonthData } from '@/lib/simulation';
+import { BASE_43_BORROWERS, BorrowerProfile } from '@/lib/borrowersData';
 import { formatCurrency } from '@/lib/utils';
 import { PaymentContext } from '@/components/AppLayout';
 
@@ -52,10 +59,37 @@ export default function ViewModelPage() {
   const [refinanceTenureMonths, setRefinanceTenureMonths] = useState(30);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
 
+  // Specific Borrowers Selection for Month 16
+  const [selectedBorrowerIds, setSelectedBorrowerIds] = useState<number[]>([1, 2, 3, 4, 5, 6, 7, 8]);
+  const [isBorrowerModalOpen, setIsBorrowerModalOpen] = useState(false);
+  const [borrowerSearchQuery, setBorrowerSearchQuery] = useState('');
+
   // Stepper State
   const [currentMonthIndex, setCurrentMonthIndex] = useState(1); // 1 to 30
   const [isPlaying, setIsPlaying] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Synchronize count with selected borrowers
+  const handleToggleBorrower = (id: number) => {
+    setSelectedBorrowerIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
+      const count = Math.max(1, next.length);
+      setRefinanceCount(count);
+      return next;
+    });
+  };
+
+  const handleSelectFirstN = (n: number) => {
+    const ids = BASE_43_BORROWERS.slice(0, n).map((b) => b.id);
+    setSelectedBorrowerIds(ids);
+    setRefinanceCount(ids.length);
+  };
+
+  const handleSetRefinanceCount = (count: number) => {
+    const safeCount = Math.max(1, Math.min(43, count));
+    setRefinanceCount(safeCount);
+    setSelectedBorrowerIds(BASE_43_BORROWERS.slice(0, safeCount).map((b) => b.id));
+  };
 
   // Generate full 30 months data
   const simulationData = React.useMemo(() => {
@@ -149,6 +183,13 @@ export default function ViewModelPage() {
   const isBudgetExceeded = totalRefinanceCashRequired > m16AvailablePool;
   const budgetDeficitAmount = Math.max(0, totalRefinanceCashRequired - m16AvailablePool);
 
+  // Filter borrowers in search modal
+  const filteredBorrowers = BASE_43_BORROWERS.filter((b) => 
+    b.name.toLowerCase().includes(borrowerSearchQuery.toLowerCase()) ||
+    b.phone.includes(borrowerSearchQuery) ||
+    b.area.toLowerCase().includes(borrowerSearchQuery.toLowerCase())
+  );
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -183,7 +224,7 @@ export default function ViewModelPage() {
             </div>
             <div className="flex items-center justify-between gap-4 text-slate-500">
               <span>Month 16 Renewal:</span>
-              <strong className="text-amber-700">{refinanceCount} Persons @ {formatCurrency(refinanceSanctioned, currency)}</strong>
+              <strong className="text-amber-700">{selectedBorrowerIds.length} Persons @ {formatCurrency(refinanceSanctioned, currency)}</strong>
             </div>
           </div>
 
@@ -329,23 +370,31 @@ export default function ViewModelPage() {
                 Existing Customers Renewal & Cash Pool Budget Control
               </h2>
               <p className="text-xs text-slate-600 mt-0.5">
-                Aap yaha decide kar sakte hain ki Month 16 me kitne borrowers ko renew karna hai, kitna naya loan aur file charge lena hai.
+                Aap yaha decide kar sakte hain ki Month 16 me kin 8 borrowers ko renew karna hai, kitna naya loan aur file charge lena hai.
               </p>
             </div>
 
-            {/* Quick Presets */}
-            <div className="flex items-center gap-2">
+            {/* Quick Presets & Borrower Picker Button */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setIsBorrowerModalOpen(true)}
+                className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 transition active:scale-95"
+              >
+                <Users className="h-4 w-4" />
+                <span>Choose 8 Borrowers ({selectedBorrowerIds.length})</span>
+              </button>
+
               <button
                 onClick={() => {
-                  setRefinanceCount(8);
+                  handleSelectFirstN(8);
                   setRefinanceSanctioned(80000);
                   setRefinanceFileCharge(6000);
                   setRefinanceMonthlyEmi(4050);
                   setRefinanceTenureMonths(30);
                 }}
-                className="px-3 py-1.5 bg-white hover:bg-amber-100 text-slate-700 border border-amber-300 rounded-xl text-xs font-bold shadow-sm transition"
+                className="px-3 py-2 bg-white hover:bg-amber-100 text-slate-700 border border-amber-300 rounded-xl text-xs font-bold shadow-sm transition"
               >
-                Reset Default (8 Loans @ 80k)
+                Reset Default 8
               </button>
             </div>
           </div>
@@ -372,7 +421,7 @@ export default function ViewModelPage() {
 
               {/* Action Button to Auto-Fix */}
               <button
-                onClick={() => setRefinanceCount(maxAffordableBorrowers)}
+                onClick={() => handleSetRefinanceCount(maxAffordableBorrowers)}
                 className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl shadow-md transition whitespace-nowrap active:scale-95"
               >
                 Auto-Adjust to Max Affordable ({maxAffordableBorrowers} Borrowers)
@@ -404,10 +453,15 @@ export default function ViewModelPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {/* Input 1: Persons to Renew */}
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
-              <label className="text-[11px] font-bold text-slate-600 uppercase">Borrowers to Renew</label>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-slate-600 uppercase">Borrowers to Renew</label>
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                  {selectedBorrowerIds.length} Selected
+                </span>
+              </div>
               <div className="flex items-center gap-2 mt-1">
                 <button
-                  onClick={() => setRefinanceCount((prev) => Math.max(1, prev - 1))}
+                  onClick={() => handleSetRefinanceCount(selectedBorrowerIds.length - 1)}
                   className="h-8 w-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
                 >
                   <Minus className="h-3.5 w-3.5" />
@@ -417,17 +471,25 @@ export default function ViewModelPage() {
                   min="1"
                   max="43"
                   value={refinanceCount}
-                  onChange={(e) => setRefinanceCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  onChange={(e) => handleSetRefinanceCount(parseInt(e.target.value, 10) || 1)}
                   className="w-full text-center font-black text-slate-900 text-lg border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-amber-500 outline-none"
                 />
                 <button
-                  onClick={() => setRefinanceCount((prev) => prev + 1)}
+                  onClick={() => handleSetRefinanceCount(selectedBorrowerIds.length + 1)}
                   className="h-8 w-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <p className="text-[10px] text-slate-400 text-center">Base cohort me se {refinanceCount} select honge</p>
+              
+              <button
+                type="button"
+                onClick={() => setIsBorrowerModalOpen(true)}
+                className="w-full mt-2 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95"
+              >
+                <Users className="h-3.5 w-3.5" />
+                <span>Pick Borrowers ({selectedBorrowerIds.length})</span>
+              </button>
             </div>
 
             {/* Input 2: New Sanctioned Loan */}
@@ -496,6 +558,74 @@ export default function ViewModelPage() {
             </div>
           </div>
 
+          {/* SELECTED BORROWERS CHIPS STRIP */}
+          <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="h-6 w-6 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center text-xs font-black">
+                  {selectedBorrowerIds.length}
+                </span>
+                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wide">
+                  Selected Customers for ₹80,000 Refinance ({selectedBorrowerIds.length} Borrowers)
+                </h4>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleSelectFirstN(8)}
+                  className="text-[11px] font-bold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 transition"
+                >
+                  Select First 8 Default
+                </button>
+                <button
+                  onClick={() => setIsBorrowerModalOpen(true)}
+                  className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 transition flex items-center gap-1"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  <span>+ Add / Choose People</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Grid of Selected Borrowers */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+              {selectedBorrowerIds.map((bId) => {
+                const borrower = BASE_43_BORROWERS.find((b) => b.id === bId);
+                if (!borrower) return null;
+
+                return (
+                  <div
+                    key={borrower.id}
+                    className="p-2.5 bg-slate-50 hover:bg-amber-50/60 border border-slate-200 hover:border-amber-300 rounded-xl flex items-center justify-between gap-2 transition text-xs group"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="h-7 w-7 rounded-lg bg-amber-500 text-slate-950 font-black text-[11px] flex items-center justify-center shrink-0">
+                        {borrower.name.charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-extrabold text-slate-900 text-xs truncate">{borrower.name}</p>
+                        <p className="text-[10px] text-slate-500 truncate">{borrower.phone}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="text-right shrink-0">
+                      <span className="text-[11px] font-black text-emerald-700 block">
+                        +{currency}{netInHandPerPerson.toLocaleString('en-IN')}
+                      </span>
+                      <button
+                        onClick={() => handleToggleBorrower(borrower.id)}
+                        className="text-[10px] text-slate-400 hover:text-rose-600 transition"
+                        title="Remove from renewal"
+                      >
+                        <X className="h-3 w-3 inline" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* PER-BORROWER & COMBINED DEDUCTION AUDIT CARD */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Left Card: 1 Customer Formula */}
@@ -555,6 +685,143 @@ export default function ViewModelPage() {
         </div>
       )}
 
+      {/* BORROWER SELECTION MODAL */}
+      {isBorrowerModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-black text-slate-900 text-lg flex items-center gap-2">
+                  <Users className="h-5 w-5 text-amber-500" />
+                  <span>Select Borrowers for Month 16 Refinancing</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Initial 43 customers me se choose karein jinko ₹80,000 ka naya loan pass karna hai.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsBorrowerModalOpen(false)}
+                className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Search Bar & Quick Select */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                <div className="relative flex-1">
+                  <Search className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search borrower by name, phone, area..."
+                    value={borrowerSearchQuery}
+                    onChange={(e) => setBorrowerSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleSelectFirstN(8)}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-sm transition whitespace-nowrap"
+                  >
+                    Select Top 8 (Default)
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedBorrowerIds([]);
+                      setRefinanceCount(1);
+                    }}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl border border-slate-200 transition"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Alert Inside Modal */}
+              <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2 ${
+                isBudgetExceeded 
+                  ? 'bg-rose-100 text-rose-800 border border-rose-300' 
+                  : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+              }`}>
+                <span>Selected: {selectedBorrowerIds.length} Borrowers ({formatCurrency(selectedBorrowerIds.length * netInHandPerPerson, currency)} in-hand cash)</span>
+                <span>Max Affordable: {maxAffordableBorrowers} Borrowers</span>
+              </div>
+            </div>
+
+            {/* Scrollable List of 43 Customers */}
+            <div className="p-4 overflow-y-auto divide-y divide-slate-100 flex-1 space-y-1">
+              {filteredBorrowers.map((borrower) => {
+                const isSelected = selectedBorrowerIds.includes(borrower.id);
+
+                return (
+                  <div
+                    key={borrower.id}
+                    onClick={() => handleToggleBorrower(borrower.id)}
+                    className={`p-3 rounded-2xl flex items-center justify-between gap-3 cursor-pointer transition ${
+                      isSelected
+                        ? 'bg-amber-50/80 border border-amber-300'
+                        : 'hover:bg-slate-50 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`h-6 w-6 rounded-lg flex items-center justify-center transition ${
+                        isSelected ? 'bg-amber-500 text-slate-950' : 'border border-slate-300 bg-white'
+                      }`}>
+                        {isSelected && <Check className="h-4 w-4 stroke-[3]" />}
+                      </div>
+
+                      <div className="h-9 w-9 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0">
+                        {borrower.id}
+                      </div>
+
+                      <div>
+                        <p className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+                          <span>{borrower.name}</span>
+                          <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-semibold border border-emerald-200">
+                            16 EMIs Paid
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-slate-500">{borrower.phone} • {borrower.area}</p>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-xs font-black text-emerald-700">
+                        +{formatCurrency(netInHandPerPerson, currency)}
+                      </p>
+                      <p className="text-[10px] text-slate-400">Net in-hand</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between rounded-b-3xl">
+              <div>
+                <p className="text-xs font-black text-slate-900">
+                  {selectedBorrowerIds.length} Borrowers Selected
+                </p>
+                <p className="text-[10px] text-slate-500">
+                  Total Disbursed: {formatCurrency(selectedBorrowerIds.length * netInHandPerPerson, currency)}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setIsBorrowerModalOpen(false)}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md transition active:scale-95"
+              >
+                Done & Apply ({selectedBorrowerIds.length} People)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Month Snapshot Metrics (4 Cards) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Metric 1: Monthly EMI Collection */}
@@ -585,7 +852,7 @@ export default function ViewModelPage() {
           </div>
           <p className="text-2xl font-black text-emerald-700 mt-2">
             {currentMonthData.month === 16 ? (
-              <span>+{refinanceCount} Renewals</span>
+              <span>+{selectedBorrowerIds.length} Renewals</span>
             ) : (
               <span>+{currentMonthData.newLoansFunded} Loans</span>
             )}
@@ -657,7 +924,7 @@ export default function ViewModelPage() {
             </p>
             <p className="text-emerald-800">
               {currentMonthData.month === 16 
-                ? `${refinanceCount} renewed @ ₹57.8k in-hand + ${currentMonthData.newLoansFunded} regular loans` 
+                ? `${selectedBorrowerIds.length} renewed @ ₹57.8k in-hand + ${currentMonthData.newLoansFunded} regular loans` 
                 : `${currentMonthData.newLoansFunded} new loans @ ₹55,000 in-hand cash`}
             </p>
           </div>
@@ -772,7 +1039,7 @@ export default function ViewModelPage() {
                       {isMonth16 ? (
                         <div className="flex flex-col gap-0.5">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-200 text-amber-950 font-black text-xs">
-                            🔄 {refinanceCount} Renewed (₹80k)
+                            🔄 {selectedBorrowerIds.length} Renewed (₹80k)
                           </span>
                           {row.newLoansFunded > 0 && (
                             <span className="text-[10px] text-emerald-700 font-bold">
@@ -821,4 +1088,5 @@ export default function ViewModelPage() {
     </div>
   );
 }
+
 
