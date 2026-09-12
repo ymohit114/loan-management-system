@@ -35,7 +35,7 @@ import {
   Square,
   CalendarCheck
 } from 'lucide-react';
-import { generateSimulationData, SimulationMonthData } from '@/lib/simulation';
+import { generateSimulationData, SimulationMonthData, MonthRefinanceConfig } from '@/lib/simulation';
 import { BASE_43_BORROWERS, BorrowerProfile } from '@/lib/borrowersData';
 import { formatCurrency } from '@/lib/utils';
 import { PaymentContext } from '@/components/AppLayout';
@@ -53,16 +53,17 @@ export default function ViewModelPage() {
 
   // Dynamic Refinancing Configuration (Configurable for ANY Month: 16, 17, 18...)
   const [refinanceEnabled, setRefinanceEnabled] = useState(true);
-  const [refinanceAtMonth, setRefinanceAtMonth] = useState(16); // User can change to 16, 17, 18, 19, etc.
-  const [refinanceCount, setRefinanceCount] = useState(8);
+  const [activeConfigMonth, setActiveConfigMonth] = useState(16); // Currently active month in control center
   const [refinanceSanctioned, setRefinanceSanctioned] = useState(80000);
   const [refinanceFileCharge, setRefinanceFileCharge] = useState(6000);
   const [refinanceMonthlyEmi, setRefinanceMonthlyEmi] = useState(4050);
   const [refinanceTenureMonths, setRefinanceTenureMonths] = useState(30);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
 
-  // Specific Borrowers Selection for Refinancing
-  const [selectedBorrowerIds, setSelectedBorrowerIds] = useState<number[]>([1, 2, 3, 4, 5, 6, 7, 8]);
+  // Specific Borrowers Selection for each Refinancing Month (e.g. Month 16, Month 17...)
+  const [monthlyBorrowersMap, setMonthlyBorrowersMap] = useState<Record<number, number[]>>({
+    16: [1, 2, 3, 4, 5, 6, 7, 8],
+  });
   const [isBorrowerModalOpen, setIsBorrowerModalOpen] = useState(false);
   const [borrowerSearchQuery, setBorrowerSearchQuery] = useState('');
 
@@ -71,45 +72,145 @@ export default function ViewModelPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Synchronize count with selected borrowers
-  const handleToggleBorrower = (id: number) => {
-    setSelectedBorrowerIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
-      const count = Math.max(1, next.length);
-      setRefinanceCount(count);
-      return next;
+  // Active configured months list (e.g. [16, 17])
+  const configuredRefinanceMonths = React.useMemo(() => {
+    return Object.keys(monthlyBorrowersMap)
+      .map(Number)
+      .filter((m) => monthlyBorrowersMap[m] && monthlyBorrowersMap[m].length > 0)
+      .sort((a, b) => a - b);
+  }, [monthlyBorrowersMap]);
+
+  // Which borrowers are assigned in ANY month other than the current activeConfigMonth
+  const assignedInOtherMonths = React.useMemo(() => {
+    const map = new Map<number, number>(); // borrowerId -> month
+    Object.entries(monthlyBorrowersMap).forEach(([mStr, ids]) => {
+      const m = parseInt(mStr, 10);
+      if (m !== activeConfigMonth) {
+        ids.forEach((id) => map.set(id, m));
+      }
+    });
+    return map;
+  }, [monthlyBorrowersMap, activeConfigMonth]);
+
+  // Current borrowers for activeConfigMonth
+  const activeSelectedBorrowerIds = monthlyBorrowersMap[activeConfigMonth] || [];
+
+  // Toggle borrower in activeConfigMonth
+  const handleToggleBorrowerForActiveMonth = (id: number) => {
+    // If assigned in another month, ignore
+    if (assignedInOtherMonths.has(id)) return;
+
+    setMonthlyBorrowersMap((prev) => {
+      const current = prev[activeConfigMonth] || [];
+      const updated = current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id];
+      return {
+        ...prev,
+        [activeConfigMonth]: updated,
+      };
     });
   };
 
-  const handleSelectFirstN = (n: number) => {
-    const ids = BASE_43_BORROWERS.slice(0, n).map((b) => b.id);
-    setSelectedBorrowerIds(ids);
-    setRefinanceCount(ids.length);
+  // Select next N available borrowers for activeConfigMonth
+  const handleSelectNextAvailableForActiveMonth = (count: number = 8) => {
+    const assignedElsewhere = new Set<number>();
+    Object.entries(monthlyBorrowersMap).forEach(([mStr, ids]) => {
+      if (parseInt(mStr, 10) !== activeConfigMonth) {
+        ids.forEach((id) => assignedElsewhere.add(id));
+      }
+    });
+
+    const available = BASE_43_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
+    const chosen = available.slice(0, count).map((b) => b.id);
+    setMonthlyBorrowersMap((prev) => ({
+      ...prev,
+      [activeConfigMonth]: chosen,
+    }));
   };
 
-  const handleSetRefinanceCount = (count: number) => {
-    const safeCount = Math.max(1, Math.min(43, count));
-    setRefinanceCount(safeCount);
-    setSelectedBorrowerIds(BASE_43_BORROWERS.slice(0, safeCount).map((b) => b.id));
+  // Set exact count for activeConfigMonth
+  const handleSetCountForActiveMonth = (targetCount: number) => {
+    const assignedElsewhere = new Set<number>();
+    Object.entries(monthlyBorrowersMap).forEach(([mStr, ids]) => {
+      if (parseInt(mStr, 10) !== activeConfigMonth) {
+        ids.forEach((id) => assignedElsewhere.add(id));
+      }
+    });
+
+    const available = BASE_43_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
+    const safeCount = Math.max(0, Math.min(available.length, targetCount));
+    const chosen = available.slice(0, safeCount).map((b) => b.id);
+    setMonthlyBorrowersMap((prev) => ({
+      ...prev,
+      [activeConfigMonth]: chosen,
+    }));
   };
 
-  // Generate full 30 months data dynamically based on refinanceAtMonth
+  // Enable/Add refinancing for a specific month
+  const handleEnableMonthRefinance = (m: number, count: number = 8) => {
+    const assignedElsewhere = new Set<number>();
+    Object.entries(monthlyBorrowersMap).forEach(([mStr, ids]) => {
+      if (parseInt(mStr, 10) !== m) {
+        ids.forEach((id) => assignedElsewhere.add(id));
+      }
+    });
+
+    const available = BASE_43_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
+    const chosen = available.slice(0, count).map((b) => b.id);
+    setMonthlyBorrowersMap((prev) => ({
+      ...prev,
+      [m]: chosen,
+    }));
+    setActiveConfigMonth(m);
+    setCurrentMonthIndex(m);
+  };
+
+  // Remove refinancing from a specific month
+  const handleRemoveMonthRefinance = (m: number) => {
+    setMonthlyBorrowersMap((prev) => {
+      const next = { ...prev };
+      delete next[m];
+      return next;
+    });
+    // Set active month to first remaining or 16
+    const remaining = Object.keys(monthlyBorrowersMap)
+      .map(Number)
+      .filter((item) => item !== m);
+    if (remaining.length > 0) {
+      setActiveConfigMonth(remaining[0]);
+    } else {
+      setActiveConfigMonth(16);
+    }
+  };
+
+  // Generate full 30 months simulation data
   const simulationData = React.useMemo(() => {
+    const monthlyRefinances: Record<number, MonthRefinanceConfig> = {};
+    Object.entries(monthlyBorrowersMap).forEach(([mStr, ids]) => {
+      const m = parseInt(mStr, 10);
+      if (ids && ids.length > 0) {
+        monthlyRefinances[m] = {
+          count: ids.length,
+          borrowerIds: ids,
+          sanctioned: refinanceSanctioned,
+          fileCharge: refinanceFileCharge,
+          monthlyEmi: refinanceMonthlyEmi,
+          tenureMonths: refinanceTenureMonths,
+        };
+      }
+    });
+
     return generateSimulationData({
       initialLoans,
       sanctionedAmount: loanPrincipal,
       fileCharge,
       monthlyEmi,
       tenureMonths: 20,
-      totalMonths: 30, // Full 30 months
+      totalMonths: 30,
       reinvestFileCharges,
       refinanceEnabled,
-      refinanceAtMonth,
-      refinanceCount,
-      refinanceSanctioned,
-      refinanceFileCharge,
-      refinanceMonthlyEmi,
-      refinanceTenureMonths,
+      monthlyRefinances,
     });
   }, [
     initialLoans,
@@ -118,8 +219,7 @@ export default function ViewModelPage() {
     monthlyEmi,
     reinvestFileCharges,
     refinanceEnabled,
-    refinanceAtMonth,
-    refinanceCount,
+    monthlyBorrowersMap,
     refinanceSanctioned,
     refinanceFileCharge,
     refinanceMonthlyEmi,
@@ -129,21 +229,23 @@ export default function ViewModelPage() {
   // Current active month data
   const currentMonthData: SimulationMonthData = simulationData[currentMonthIndex - 1] || simulationData[0];
 
-  // Auto-play timer (auto-pauses at whichever refinance month is chosen)
+  // Auto-play timer (auto-pauses at ANY configured refinance month)
   useEffect(() => {
     if (isPlaying) {
       timerRef.current = setInterval(() => {
         setCurrentMonthIndex((prev) => {
-          if (prev === refinanceAtMonth - 1) {
+          const nextMonth = prev + 1;
+          if (configuredRefinanceMonths.includes(nextMonth)) {
             // Auto pause at refinance milestone so presenter can discuss
             setIsPlaying(false);
-            return refinanceAtMonth;
+            setActiveConfigMonth(nextMonth);
+            return nextMonth;
           }
-          if (prev >= simulationData.length) {
+          if (nextMonth > simulationData.length) {
             setIsPlaying(false);
             return prev;
           }
-          return prev + 1;
+          return nextMonth;
         });
       }, 2000);
     } else {
@@ -152,17 +254,25 @@ export default function ViewModelPage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isPlaying, simulationData.length, refinanceAtMonth]);
+  }, [isPlaying, simulationData.length, configuredRefinanceMonths]);
 
   const handleNextMonth = () => {
     if (currentMonthIndex < simulationData.length) {
-      setCurrentMonthIndex((prev) => prev + 1);
+      const nextM = currentMonthIndex + 1;
+      setCurrentMonthIndex(nextM);
+      if (configuredRefinanceMonths.includes(nextM)) {
+        setActiveConfigMonth(nextM);
+      }
     }
   };
 
   const handlePrevMonth = () => {
     if (currentMonthIndex > 1) {
-      setCurrentMonthIndex((prev) => prev - 1);
+      const prevM = currentMonthIndex - 1;
+      setCurrentMonthIndex(prevM);
+      if (configuredRefinanceMonths.includes(prevM)) {
+        setActiveConfigMonth(prevM);
+      }
     }
   };
 
@@ -173,18 +283,18 @@ export default function ViewModelPage() {
 
   const inHandRequired = loanPrincipal - fileCharge;
 
-  // DYNAMIC REFINANCING CALCULATIONS BASED ON SELECTED MONTH (Month 16, 17, 18...)
-  const oldEmisLeft = Math.max(0, 20 - refinanceAtMonth);
-  const oldSettledPerPerson = oldEmisLeft * monthlyEmi;
-  const netInHandPerPerson = refinanceSanctioned - refinanceFileCharge - oldSettledPerPerson;
-  const totalRefinanceCashRequired = selectedBorrowerIds.length * netInHandPerPerson;
-  
-  // Find data for the chosen refinancing month to check available pool
-  const refinanceMonthData = simulationData.find((d) => d.month === refinanceAtMonth);
-  const targetAvailablePool = refinanceMonthData ? refinanceMonthData.availablePool : 0;
-  const maxAffordableBorrowers = netInHandPerPerson > 0 ? Math.floor(targetAvailablePool / netInHandPerPerson) : 0;
-  const isBudgetExceeded = totalRefinanceCashRequired > targetAvailablePool;
-  const budgetDeficitAmount = Math.max(0, totalRefinanceCashRequired - targetAvailablePool);
+  // DYNAMIC REFINANCING CALCULATIONS FOR activeConfigMonth
+  const activeOldEmisLeft = Math.max(0, 20 - activeConfigMonth);
+  const activeOldSettledPerPerson = activeOldEmisLeft * monthlyEmi;
+  const activeNetInHandPerPerson = refinanceSanctioned - refinanceFileCharge - activeOldSettledPerPerson;
+  const activeTotalRefinanceCashRequired = activeSelectedBorrowerIds.length * activeNetInHandPerPerson;
+
+  // Find simulation data for activeConfigMonth to check available pool
+  const activeMonthData = simulationData.find((d) => d.month === activeConfigMonth);
+  const activeTargetAvailablePool = activeMonthData ? activeMonthData.availablePool : 0;
+  const activeMaxAffordableBorrowers = activeNetInHandPerPerson > 0 ? Math.floor(activeTargetAvailablePool / activeNetInHandPerPerson) : 0;
+  const activeIsBudgetExceeded = activeTotalRefinanceCashRequired > activeTargetAvailablePool;
+  const activeBudgetDeficitAmount = Math.max(0, activeTotalRefinanceCashRequired - activeTargetAvailablePool);
 
   // Filter borrowers in search modal
   const filteredBorrowers = BASE_43_BORROWERS.filter((b) => 
@@ -210,7 +320,7 @@ export default function ViewModelPage() {
             <span>Cashflow Multiplier & Reinvestment Simulator</span>
           </h1>
           <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            Har mahine aane wali EMI collection se naye loans pass hote hain. <strong>Month {refinanceAtMonth}</strong> (ya aapke pasandida kisi bhi month) me purane customers ko <strong>₹80,000</strong> ka renewal loan diya jaata hai jisme se baaki bachi EMIs auto-deduct hoti hain.
+            Har mahine aane wali EMI collection se naye loans pass hote hain. <strong>Month 16, 17, 18</strong> (ya kisi bhi month) me purane customers ko <strong>₹80,000</strong> ka renewal loan diya jaata hai jisme se baaki bachi EMIs auto-deduct hoti hain.
           </p>
         </div>
 
@@ -227,7 +337,11 @@ export default function ViewModelPage() {
             </div>
             <div className="flex items-center justify-between gap-4 text-slate-500">
               <span>Refinance Active:</span>
-              <strong className="text-amber-700">Month {refinanceAtMonth} ({selectedBorrowerIds.length} Persons @ {formatCurrency(refinanceSanctioned, currency)})</strong>
+              <strong className="text-amber-700">
+                {configuredRefinanceMonths.length > 0
+                  ? configuredRefinanceMonths.map((m) => `M${m} (${monthlyBorrowersMap[m]?.length || 0}P)`).join(', ')
+                  : 'None'}
+              </strong>
             </div>
           </div>
 
@@ -251,9 +365,9 @@ export default function ViewModelPage() {
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-300">
                 Simulated Timeline
               </span>
-              {currentMonthIndex === refinanceAtMonth && (
+              {currentMonthData.refinanceTriggered && (
                 <span className="px-2 py-0.5 bg-amber-500 text-slate-950 rounded-full font-black text-[10px] animate-pulse">
-                  🌟 Month {refinanceAtMonth} Refinancing Active
+                  🌟 Month {currentMonthData.month} Refinancing Active ({currentMonthData.refinanceBorrowers} Borrowers)
                 </span>
               )}
             </div>
@@ -266,7 +380,7 @@ export default function ViewModelPage() {
               </span>
             </div>
             <p className="text-xs text-slate-300">
-              {currentMonthData.activePayingLoans} borrowers paying EMI this month $\rightarrow$ {currentMonthData.newLoansFunded} new loan(s) sanctioned!
+              {currentMonthData.activePayingLoans} borrowers paying EMI this month $\rightarrow$ {currentMonthData.refinanceTriggered ? `${currentMonthData.refinanceBorrowers} renewed + ` : ''}{currentMonthData.newLoansFunded} new regular loan(s) sanctioned!
             </p>
           </div>
 
@@ -282,20 +396,20 @@ export default function ViewModelPage() {
               <span>Prev Month</span>
             </button>
 
-            {/* Jump to Refinancing Month Shortcut */}
+            {/* Jump to Active Refinancing Month Shortcut */}
             <button
               onClick={() => {
                 setIsPlaying(false);
-                setCurrentMonthIndex(refinanceAtMonth);
+                setCurrentMonthIndex(activeConfigMonth);
               }}
               className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 ${
-                currentMonthIndex === refinanceAtMonth
+                currentMonthIndex === activeConfigMonth
                   ? 'bg-amber-500 text-slate-950 font-black shadow-md'
                   : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40'
               }`}
             >
               <Sparkles className="h-3.5 w-3.5" />
-              <span>Month {refinanceAtMonth} Setup</span>
+              <span>Month {activeConfigMonth} Setup</span>
             </button>
 
             {/* Next Month Button (Hero CTA) */}
@@ -335,10 +449,12 @@ export default function ViewModelPage() {
         {/* Timeline Progress Scrubber */}
         <div className="mt-6 pt-4 border-t border-slate-800/80">
           <div className="flex justify-between items-center text-xs font-semibold text-slate-400 mb-2">
-            <span>Month 1 (Base 43 Loans)</span>
-            <span className="text-amber-300 font-bold">Month {refinanceAtMonth} (Refinance Event)</span>
+            <span>Month 1 (Base 43)</span>
+            <span className="text-amber-300 font-bold">
+              Refinance: {configuredRefinanceMonths.map((m) => `M${m}`).join(', ')}
+            </span>
             <span className="text-indigo-300 font-bold">Month {currentMonthIndex} of {simulationData.length}</span>
-            <span>Month 30 (Matured Cycle)</span>
+            <span>Month 30 (Cycle End)</span>
           </div>
           <input
             type="range"
@@ -347,71 +463,134 @@ export default function ViewModelPage() {
             value={currentMonthIndex}
             onChange={(e) => {
               setIsPlaying(false);
-              setCurrentMonthIndex(parseInt(e.target.value, 10));
+              const m = parseInt(e.target.value, 10);
+              setCurrentMonthIndex(m);
+              if (configuredRefinanceMonths.includes(m)) {
+                setActiveConfigMonth(m);
+              }
             }}
             className="w-full h-2.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
           />
         </div>
       </div>
 
-      {/* DYNAMIC REFINANCING COMMAND CENTER (Visible when currentMonthIndex === refinanceAtMonth or config panel is toggled) */}
-      {(currentMonthIndex === refinanceAtMonth || showConfigPanel) && (
+      {/* DYNAMIC REFINANCING COMMAND CENTER (Visible when current month has refinance, or config panel is toggled, or month >= 15) */}
+      {(currentMonthData.refinanceTriggered || configuredRefinanceMonths.includes(currentMonthIndex) || showConfigPanel || currentMonthIndex >= 15) && (
         <div className="p-5 md:p-6 bg-gradient-to-br from-amber-500/10 via-white to-amber-500/5 rounded-3xl border-2 border-amber-400/80 shadow-lg space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
-          {/* Header & Month Chooser */}
+          
+          {/* MULTI-MONTH MILESTONES BAR & TABS */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 bg-white/90 rounded-2xl border border-amber-200 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-black uppercase text-slate-500 flex items-center gap-1">
+                <CalendarCheck className="h-4 w-4 text-amber-500" />
+                <span>Refinance Months:</span>
+              </span>
+
+              {configuredRefinanceMonths.map((m) => {
+                const count = monthlyBorrowersMap[m]?.length || 0;
+                const isSelectedTab = activeConfigMonth === m;
+                return (
+                  <div
+                    key={m}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-black transition ${
+                      isSelectedTab
+                        ? 'bg-amber-500 text-slate-950 shadow-sm ring-2 ring-amber-400'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveConfigMonth(m);
+                        setCurrentMonthIndex(m);
+                      }}
+                      className="flex items-center gap-1.5"
+                    >
+                      <Sparkles className="h-3 w-3 fill-current" />
+                      <span>Month {m}</span>
+                      <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-extrabold ${
+                        isSelectedTab ? 'bg-slate-950 text-amber-300' : 'bg-amber-200 text-amber-900'
+                      }`}>
+                        {count} Borrowers
+                      </span>
+                    </button>
+                    {configuredRefinanceMonths.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveMonthRefinance(m);
+                        }}
+                        className="ml-1 p-0.5 hover:bg-black/10 rounded text-slate-600 hover:text-rose-600 transition"
+                        title={`Remove Month ${m} refinance`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Quick Add Next Months (+ M16, + M17, + M18, + M19, + M20) */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-400 uppercase">+ Add Month:</span>
+              {[16, 17, 18, 19, 20].map((m) => {
+                const isAlreadyConfigured = configuredRefinanceMonths.includes(m);
+                if (isAlreadyConfigured) return null;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => handleEnableMonthRefinance(m, 8)}
+                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-black transition active:scale-95 flex items-center gap-1"
+                    title={`Month ${m} me agle 8 borrowers ko refinance karein`}
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>M{m}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Header & Controls for Active Month */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-amber-200">
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1">
                   <Sparkles className="h-3.5 w-3.5 fill-current" />
-                  Month {refinanceAtMonth} Refinancing Milestone
+                  Month {activeConfigMonth} Refinancing Milestone
                 </span>
                 <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
-                  {refinanceAtMonth} EMIs Paid • {oldEmisLeft} EMIs Remaining
+                  {activeConfigMonth} EMIs Paid • {activeOldEmisLeft} EMIs Remaining
                 </span>
               </div>
               <h2 className="text-xl md:text-2xl font-black text-slate-900 mt-1">
-                Refinancing Month & Cash Pool Budget Control
+                Month {activeConfigMonth} Refinancing & Cash Pool Budget Control
               </h2>
               <p className="text-xs text-slate-600 mt-0.5">
-                Aap decide karein ki kis month me renewal loan dena hai (16, 17, 18 etc.) aur kin borrowers ko select karna hai.
+                Month 16 me renew karne ke baad, aap <strong>Month 17, 18</strong> me bhi naye batches add kar sakte hain. Purane EMIs har month ke according deduct honge.
               </p>
             </div>
 
-            {/* Quick Month Switcher Pills */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-              <div className="flex items-center gap-1 bg-white p-1 rounded-2xl border border-amber-300 shadow-sm">
-                <span className="text-[10px] font-black uppercase text-slate-400 px-2">Trigger Month:</span>
-                {[15, 16, 17, 18, 19, 20].map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => {
-                      setRefinanceAtMonth(m);
-                      setCurrentMonthIndex(m);
-                    }}
-                    className={`px-2.5 py-1 rounded-xl text-xs font-black transition ${
-                      refinanceAtMonth === m
-                        ? 'bg-amber-500 text-slate-950 shadow-sm'
-                        : 'text-slate-600 hover:bg-amber-50'
-                    }`}
-                  >
-                    M{m}
-                  </button>
-                ))}
-              </div>
-
-              {currentMonthIndex !== refinanceAtMonth && (
+            {/* Quick Switch to current Month index */}
+            <div className="flex items-center gap-2">
+              {currentMonthIndex !== activeConfigMonth && (
                 <button
-                  onClick={() => setRefinanceAtMonth(currentMonthIndex)}
+                  onClick={() => {
+                    setActiveConfigMonth(currentMonthIndex);
+                  }}
                   className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition whitespace-nowrap"
                 >
-                  Set to M{currentMonthIndex}
+                  Switch to View M{currentMonthIndex}
                 </button>
               )}
             </div>
           </div>
 
-          {/* REAL-TIME BUDGET WARNING ALERT (POOLS DEFICIT CHECK) */}
-          {isBudgetExceeded ? (
+          {/* REAL-TIME BUDGET WARNING ALERT (POOLS DEFICIT CHECK FOR ACTIVE MONTH) */}
+          {activeIsBudgetExceeded ? (
             <div className="p-4 bg-rose-50 border-2 border-rose-400 rounded-2xl text-rose-900 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm animate-pulse">
               <div className="flex items-start gap-3">
                 <div className="h-10 w-10 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0 mt-0.5">
@@ -419,23 +598,23 @@ export default function ViewModelPage() {
                 </div>
                 <div>
                   <h4 className="text-sm font-black text-rose-900 uppercase tracking-wide">
-                    ⚠️ Month {refinanceAtMonth} Collection Pool Exceeded! (Cash Shortage Alert)
+                    ⚠️ Month {activeConfigMonth} Collection Pool Exceeded! (Cash Shortage Alert)
                   </h4>
                   <p className="text-xs text-rose-700 mt-1">
-                    Aapne <strong>{selectedBorrowerIds.length} customers</strong> select kiye hain jinko in-hand dene ke liye <strong>{formatCurrency(totalRefinanceCashRequired, currency)}</strong> cash chahiye, jabki Month {refinanceAtMonth} ka available collection pool sirf <strong>{formatCurrency(targetAvailablePool, currency)}</strong> hai.
+                    Aapne <strong>{activeSelectedBorrowerIds.length} customers</strong> select kiye hain jinko in-hand dene ke liye <strong>{formatCurrency(activeTotalRefinanceCashRequired, currency)}</strong> cash chahiye, jabki Month {activeConfigMonth} ka available collection pool sirf <strong>{formatCurrency(activeTargetAvailablePool, currency)}</strong> hai.
                   </p>
                   <p className="text-xs font-bold text-rose-800 mt-1">
-                    Shortage (Deficit): <span className="underline">{formatCurrency(budgetDeficitAmount, currency)}</span>
+                    Shortage (Deficit): <span className="underline">{formatCurrency(activeBudgetDeficitAmount, currency)}</span>
                   </p>
                 </div>
               </div>
 
               {/* Action Button to Auto-Fix */}
               <button
-                onClick={() => handleSetRefinanceCount(maxAffordableBorrowers)}
+                onClick={() => handleSetCountForActiveMonth(activeMaxAffordableBorrowers)}
                 className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl shadow-md transition whitespace-nowrap active:scale-95"
               >
-                Auto-Adjust to Max Affordable ({maxAffordableBorrowers} Borrowers)
+                Auto-Adjust to Max Affordable ({activeMaxAffordableBorrowers} Borrowers)
               </button>
             </div>
           ) : (
@@ -446,23 +625,23 @@ export default function ViewModelPage() {
                 </div>
                 <div>
                   <p className="text-xs font-black text-emerald-900 uppercase">
-                    ✅ Month {refinanceAtMonth} Cash Pool Budget Approved & Sufficient!
+                    ✅ Month {activeConfigMonth} Cash Pool Budget Approved & Sufficient!
                   </p>
                   <p className="text-xs text-emerald-700">
-                    Month {refinanceAtMonth} Pool: <strong>{formatCurrency(targetAvailablePool, currency)}</strong> | Required for {selectedBorrowerIds.length} Renewals: <strong>{formatCurrency(totalRefinanceCashRequired, currency)}</strong> | Surplus: <strong>{formatCurrency(targetAvailablePool - totalRefinanceCashRequired, currency)}</strong>
+                    Month {activeConfigMonth} Pool: <strong>{formatCurrency(activeTargetAvailablePool, currency)}</strong> | Required for {activeSelectedBorrowerIds.length} Renewals: <strong>{formatCurrency(activeTotalRefinanceCashRequired, currency)}</strong> | Surplus: <strong>{formatCurrency(activeTargetAvailablePool - activeTotalRefinanceCashRequired, currency)}</strong>
                   </p>
                 </div>
               </div>
 
               <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-lg shrink-0">
-                Max Safe: {maxAffordableBorrowers} Borrowers
+                Max Safe: {activeMaxAffordableBorrowers} Borrowers
               </span>
             </div>
           )}
 
           {/* DYNAMIC INPUTS FORM GRID */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-            {/* Input 1: Refinance Month */}
+            {/* Input 1: Active Month */}
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
               <label className="text-[11px] font-bold text-slate-600 uppercase">Refinance Month</label>
               <div className="relative mt-1">
@@ -470,39 +649,42 @@ export default function ViewModelPage() {
                   type="number"
                   min="1"
                   max="30"
-                  value={refinanceAtMonth}
-                  onChange={(e) => setRefinanceAtMonth(Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 16)))}
+                  value={activeConfigMonth}
+                  onChange={(e) => {
+                    const m = Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 16));
+                    setActiveConfigMonth(m);
+                  }}
                   className="w-full text-center font-black text-indigo-700 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-amber-500 outline-none"
                 />
               </div>
-              <p className="text-[10px] text-slate-400 text-center">Month {refinanceAtMonth} par trigger hoga</p>
+              <p className="text-[10px] text-slate-400 text-center">Month {activeConfigMonth} configure ho raha hai</p>
             </div>
 
-            {/* Input 2: Persons to Renew */}
+            {/* Input 2: Persons to Renew in activeConfigMonth */}
             <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-bold text-slate-600 uppercase">Borrowers</label>
                 <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                  {selectedBorrowerIds.length}
+                  {activeSelectedBorrowerIds.length}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 mt-1">
                 <button
-                  onClick={() => handleSetRefinanceCount(selectedBorrowerIds.length - 1)}
+                  onClick={() => handleSetCountForActiveMonth(activeSelectedBorrowerIds.length - 1)}
                   className="h-7 w-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
                 >
                   <Minus className="h-3 w-3" />
                 </button>
                 <input
                   type="number"
-                  min="1"
+                  min="0"
                   max="43"
-                  value={refinanceCount}
-                  onChange={(e) => handleSetRefinanceCount(parseInt(e.target.value, 10) || 1)}
+                  value={activeSelectedBorrowerIds.length}
+                  onChange={(e) => handleSetCountForActiveMonth(parseInt(e.target.value, 10) || 0)}
                   className="w-full text-center font-black text-slate-900 text-base border border-slate-200 rounded-lg py-0.5 focus:ring-2 focus:ring-amber-500 outline-none"
                 />
                 <button
-                  onClick={() => handleSetRefinanceCount(selectedBorrowerIds.length + 1)}
+                  onClick={() => handleSetCountForActiveMonth(activeSelectedBorrowerIds.length + 1)}
                   className="h-7 w-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
                 >
                   <Plus className="h-3 w-3" />
@@ -515,7 +697,7 @@ export default function ViewModelPage() {
                 className="w-full mt-1.5 px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 shadow-sm transition active:scale-95"
               >
                 <Users className="h-3 w-3" />
-                <span>Pick ({selectedBorrowerIds.length})</span>
+                <span>Pick ({activeSelectedBorrowerIds.length})</span>
               </button>
             </div>
 
@@ -564,7 +746,7 @@ export default function ViewModelPage() {
                   className="w-full pl-6 pr-2 font-black text-blue-700 text-base border border-slate-200 rounded-lg py-1 focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
-              <p className="text-[10px] text-blue-600">Month {refinanceAtMonth + 1} se start</p>
+              <p className="text-[10px] text-blue-600">Month {activeConfigMonth + 1} se start</p>
             </div>
 
             {/* Input 6: Tenure */}
@@ -585,72 +767,100 @@ export default function ViewModelPage() {
             </div>
           </div>
 
-          {/* SELECTED BORROWERS CHIPS STRIP */}
+          {/* SELECTED BORROWERS CHIPS STRIP FOR activeConfigMonth */}
           <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-sm space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="h-6 w-6 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center text-xs font-black">
-                  {selectedBorrowerIds.length}
+                  {activeSelectedBorrowerIds.length}
                 </span>
                 <h4 className="text-xs font-black text-slate-900 uppercase tracking-wide">
-                  Selected Customers for ₹80,000 Refinance at Month {refinanceAtMonth} ({selectedBorrowerIds.length} Borrowers)
+                  Month {activeConfigMonth} Refinance Borrowers ({activeSelectedBorrowerIds.length} People • ₹80,000 Loan)
                 </h4>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => handleSelectFirstN(8)}
-                  className="text-[11px] font-bold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 transition"
+                  type="button"
+                  onClick={() => handleSelectNextAvailableForActiveMonth(8)}
+                  className="text-[11px] font-bold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 transition flex items-center gap-1"
                 >
-                  Select First 8 Default
+                  <UserCheck className="h-3.5 w-3.5" />
+                  <span>Select Next 8 Available</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setIsBorrowerModalOpen(true)}
                   className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 transition flex items-center gap-1"
                 >
                   <UserPlus className="h-3.5 w-3.5" />
-                  <span>+ Add / Choose People</span>
+                  <span>+ Pick / Manage People</span>
                 </button>
+                {configuredRefinanceMonths.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMonthRefinance(activeConfigMonth)}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg border border-rose-200 transition flex items-center gap-1"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    <span>Remove M{activeConfigMonth}</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Grid of Selected Borrowers */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-              {selectedBorrowerIds.map((bId) => {
-                const borrower = BASE_43_BORROWERS.find((b) => b.id === bId);
-                if (!borrower) return null;
+            {/* Grid of Selected Borrowers for activeConfigMonth */}
+            {activeSelectedBorrowerIds.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                {activeSelectedBorrowerIds.map((bId) => {
+                  const borrower = BASE_43_BORROWERS.find((b) => b.id === bId);
+                  if (!borrower) return null;
 
-                return (
-                  <div
-                    key={borrower.id}
-                    className="p-2.5 bg-slate-50 hover:bg-amber-50/60 border border-slate-200 hover:border-amber-300 rounded-xl flex items-center justify-between gap-2 transition text-xs group"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="h-7 w-7 rounded-lg bg-amber-500 text-slate-950 font-black text-[11px] flex items-center justify-center shrink-0">
-                        {borrower.name.charAt(0)}
+                  return (
+                    <div
+                      key={borrower.id}
+                      className="p-2.5 bg-slate-50 hover:bg-amber-50/60 border border-slate-200 hover:border-amber-300 rounded-xl flex items-center justify-between gap-2 transition text-xs group"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-7 w-7 rounded-lg bg-amber-500 text-slate-950 font-black text-[11px] flex items-center justify-center shrink-0">
+                          {borrower.name.charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-extrabold text-slate-900 text-xs truncate">{borrower.name}</p>
+                          <p className="text-[10px] text-slate-500 truncate">{borrower.phone}</p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-extrabold text-slate-900 text-xs truncate">{borrower.name}</p>
-                        <p className="text-[10px] text-slate-500 truncate">{borrower.phone}</p>
+                      
+                      <div className="text-right shrink-0">
+                        <span className="text-[11px] font-black text-emerald-700 block">
+                          +{currency}{activeNetInHandPerPerson.toLocaleString('en-IN')}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBorrowerForActiveMonth(borrower.id)}
+                          className="text-[10px] text-slate-400 hover:text-rose-600 transition"
+                          title="Remove from this month's renewal"
+                        >
+                          <X className="h-3 w-3 inline" />
+                        </button>
                       </div>
                     </div>
-                    
-                    <div className="text-right shrink-0">
-                      <span className="text-[11px] font-black text-emerald-700 block">
-                        +{currency}{netInHandPerPerson.toLocaleString('en-IN')}
-                      </span>
-                      <button
-                        onClick={() => handleToggleBorrower(borrower.id)}
-                        className="text-[10px] text-slate-400 hover:text-rose-600 transition"
-                        title="Remove from renewal"
-                      >
-                        <X className="h-3 w-3 inline" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                <p className="text-xs font-bold text-slate-500">Month {activeConfigMonth} me abhi koi borrower select nahi kiya gaya hai.</p>
+                <button
+                  type="button"
+                  onClick={() => handleSelectNextAvailableForActiveMonth(8)}
+                  className="mt-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black inline-flex items-center gap-1 shadow-sm transition"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  <span>Select Next 8 Available Borrowers</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* PER-BORROWER & COMBINED DEDUCTION AUDIT CARD (DYNAMIC MONTH MATH) */}
@@ -659,7 +869,7 @@ export default function ViewModelPage() {
             <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-sm space-y-2 text-xs">
               <span className="text-[11px] font-black text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Receipt className="h-4 w-4" />
-                Per Customer Net In-Hand Formula (At Month {refinanceAtMonth})
+                Per Customer Net In-Hand Formula (At Month {activeConfigMonth})
               </span>
               <div className="space-y-1.5 pt-1">
                 <div className="flex justify-between text-slate-600">
@@ -672,13 +882,13 @@ export default function ViewModelPage() {
                 </div>
                 <div className="flex justify-between text-rose-600">
                   <span>
-                    3. Old {oldEmisLeft} Remaining EMIs Deducted ({oldEmisLeft} $\times$ {formatCurrency(monthlyEmi, currency)}):
+                    3. Old {activeOldEmisLeft} Remaining EMIs Deducted ({activeOldEmisLeft} $\times$ {formatCurrency(monthlyEmi, currency)}):
                   </span>
-                  <strong>-{formatCurrency(oldSettledPerPerson, currency)}</strong>
+                  <strong>-{formatCurrency(activeOldSettledPerPerson, currency)}</strong>
                 </div>
                 <div className="border-t border-slate-200 pt-1.5 flex justify-between text-sm font-black text-emerald-800">
                   <span>Net In-Hand Cash Given to Customer:</span>
-                  <span className="text-base text-emerald-700">{formatCurrency(netInHandPerPerson, currency)}</span>
+                  <span className="text-base text-emerald-700">{formatCurrency(activeNetInHandPerPerson, currency)}</span>
                 </div>
               </div>
             </div>
@@ -687,25 +897,25 @@ export default function ViewModelPage() {
             <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-sm space-y-2 text-xs">
               <span className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Wallet className="h-4 w-4 text-indigo-600" />
-                Month {refinanceAtMonth} Cashflow Impact ({selectedBorrowerIds.length} Borrowers)
+                Month {activeConfigMonth} Cashflow Impact ({activeSelectedBorrowerIds.length} Borrowers)
               </span>
               <div className="space-y-1.5 pt-1">
                 <div className="flex justify-between text-slate-600">
-                  <span>Total Sanctioned ({selectedBorrowerIds.length} $\times$ {formatCurrency(refinanceSanctioned, currency)}):</span>
-                  <strong className="text-slate-900">{formatCurrency(selectedBorrowerIds.length * refinanceSanctioned, currency)}</strong>
+                  <span>Total Sanctioned ({activeSelectedBorrowerIds.length} $\times$ {formatCurrency(refinanceSanctioned, currency)}):</span>
+                  <strong className="text-slate-900">{formatCurrency(activeSelectedBorrowerIds.length * refinanceSanctioned, currency)}</strong>
                 </div>
                 <div className="flex justify-between text-purple-700 font-bold">
-                  <span>Instant File Charge Profit ({selectedBorrowerIds.length} $\times$ {formatCurrency(refinanceFileCharge, currency)}):</span>
-                  <span>+{formatCurrency(selectedBorrowerIds.length * refinanceFileCharge, currency)}</span>
+                  <span>Instant File Charge Profit ({activeSelectedBorrowerIds.length} $\times$ {formatCurrency(refinanceFileCharge, currency)}):</span>
+                  <span>+{formatCurrency(activeSelectedBorrowerIds.length * refinanceFileCharge, currency)}</span>
                 </div>
                 <div className="flex justify-between text-blue-700">
                   <span>Old Loans Recovered / Settled:</span>
-                  <strong>{formatCurrency(selectedBorrowerIds.length * oldSettledPerPerson, currency)}</strong>
+                  <strong>{formatCurrency(activeSelectedBorrowerIds.length * activeOldSettledPerPerson, currency)}</strong>
                 </div>
                 <div className="border-t border-slate-200 pt-1.5 flex justify-between text-sm font-black text-slate-900">
-                  <span>Net In-Hand Cash Paid from Month {refinanceAtMonth} Pool:</span>
-                  <span className={isBudgetExceeded ? 'text-rose-600 text-base' : 'text-indigo-600 text-base'}>
-                    {formatCurrency(totalRefinanceCashRequired, currency)}
+                  <span>Net In-Hand Cash Paid from Month {activeConfigMonth} Pool:</span>
+                  <span className={activeIsBudgetExceeded ? 'text-rose-600 text-base' : 'text-indigo-600 text-base'}>
+                    {formatCurrency(activeTotalRefinanceCashRequired, currency)}
                   </span>
                 </div>
               </div>
@@ -723,10 +933,10 @@ export default function ViewModelPage() {
               <div>
                 <h3 className="font-black text-slate-900 text-lg flex items-center gap-2">
                   <Users className="h-5 w-5 text-amber-500" />
-                  <span>Select Borrowers for Month {refinanceAtMonth} Refinancing</span>
+                  <span>Select Borrowers for Month {activeConfigMonth} Refinancing</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Initial 43 customers me se choose karein jinko ₹80,000 ka naya loan pass karna hai.
+                  Initial 43 customers me se choose karein. Kisi doosre month me renew ho chuke customers locked dikhenge.
                 </p>
               </div>
               <button
@@ -753,54 +963,69 @@ export default function ViewModelPage() {
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => handleSelectFirstN(8)}
+                    onClick={() => handleSelectNextAvailableForActiveMonth(8)}
                     className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-sm transition whitespace-nowrap"
                   >
-                    Select Top 8 (Default)
+                    Select Next 8 Available
                   </button>
                   <button
                     onClick={() => {
-                      setSelectedBorrowerIds([]);
-                      setRefinanceCount(1);
+                      setMonthlyBorrowersMap((prev) => ({ ...prev, [activeConfigMonth]: [] }));
                     }}
                     className="px-3 py-1.5 bg-white hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl border border-slate-200 transition"
                   >
-                    Clear All
+                    Clear Month {activeConfigMonth}
                   </button>
                 </div>
               </div>
 
               {/* Status Alert Inside Modal */}
               <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2 ${
-                isBudgetExceeded 
+                activeIsBudgetExceeded 
                   ? 'bg-rose-100 text-rose-800 border border-rose-300' 
                   : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
               }`}>
-                <span>Selected: {selectedBorrowerIds.length} Borrowers ({formatCurrency(selectedBorrowerIds.length * netInHandPerPerson, currency)} in-hand cash)</span>
-                <span>Max Affordable in M{refinanceAtMonth}: {maxAffordableBorrowers} Borrowers</span>
+                <span>Selected: {activeSelectedBorrowerIds.length} Borrowers ({formatCurrency(activeTotalRefinanceCashRequired, currency)} in-hand cash)</span>
+                <span>Max Affordable in M{activeConfigMonth}: {activeMaxAffordableBorrowers} Borrowers</span>
               </div>
             </div>
 
-            {/* Scrollable List of 43 Customers */}
+            {/* Scrollable List of 43 Customers with Duplicate Exclusion */}
             <div className="p-4 overflow-y-auto divide-y divide-slate-100 flex-1 space-y-1">
               {filteredBorrowers.map((borrower) => {
-                const isSelected = selectedBorrowerIds.includes(borrower.id);
+                const isSelectedInActiveMonth = activeSelectedBorrowerIds.includes(borrower.id);
+                const renewedInOtherMonth = assignedInOtherMonths.get(borrower.id);
+                const isDisabled = renewedInOtherMonth !== undefined;
 
                 return (
                   <div
                     key={borrower.id}
-                    onClick={() => handleToggleBorrower(borrower.id)}
-                    className={`p-3 rounded-2xl flex items-center justify-between gap-3 cursor-pointer transition ${
-                      isSelected
-                        ? 'bg-amber-50/80 border border-amber-300'
-                        : 'hover:bg-slate-50 border border-transparent'
+                    onClick={() => {
+                      if (!isDisabled) {
+                        handleToggleBorrowerForActiveMonth(borrower.id);
+                      }
+                    }}
+                    className={`p-3 rounded-2xl flex items-center justify-between gap-3 transition ${
+                      isDisabled
+                        ? 'bg-slate-100/70 border border-slate-200 opacity-60 cursor-not-allowed'
+                        : isSelectedInActiveMonth
+                        ? 'bg-amber-50/80 border border-amber-300 cursor-pointer hover:bg-amber-100/50'
+                        : 'hover:bg-slate-50 border border-transparent cursor-pointer'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <div className={`h-6 w-6 rounded-lg flex items-center justify-center transition ${
-                        isSelected ? 'bg-amber-500 text-slate-950' : 'border border-slate-300 bg-white'
+                        isDisabled
+                          ? 'bg-slate-200 text-slate-400'
+                          : isSelectedInActiveMonth
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'border border-slate-300 bg-white'
                       }`}>
-                        {isSelected && <Check className="h-4 w-4 stroke-[3]" />}
+                        {isDisabled ? (
+                          <span className="text-[10px] font-bold">🔒</span>
+                        ) : isSelectedInActiveMonth ? (
+                          <Check className="h-4 w-4 stroke-[3]" />
+                        ) : null}
                       </div>
 
                       <div className="h-9 w-9 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0">
@@ -810,19 +1035,35 @@ export default function ViewModelPage() {
                       <div>
                         <p className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
                           <span>{borrower.name}</span>
-                          <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-semibold border border-emerald-200">
-                            {refinanceAtMonth} EMIs Paid
-                          </span>
+                          {isDisabled ? (
+                            <span className="text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-bold border border-indigo-200">
+                              Renewed in Month {renewedInOtherMonth}
+                            </span>
+                          ) : isSelectedInActiveMonth ? (
+                            <span className="text-[10px] text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded font-bold border border-amber-300">
+                              Month {activeConfigMonth} Selected
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-semibold border border-emerald-200">
+                              Available for Renewal
+                            </span>
+                          )}
                         </p>
                         <p className="text-[11px] text-slate-500">{borrower.phone} • {borrower.area}</p>
                       </div>
                     </div>
 
                     <div className="text-right">
-                      <p className="text-xs font-black text-emerald-700">
-                        +{formatCurrency(netInHandPerPerson, currency)}
-                      </p>
-                      <p className="text-[10px] text-slate-400">Net in-hand</p>
+                      {isDisabled ? (
+                        <span className="text-[11px] font-bold text-slate-400">Already Refinanced</span>
+                      ) : (
+                        <>
+                          <p className="text-xs font-black text-emerald-700">
+                            +{formatCurrency(activeNetInHandPerPerson, currency)}
+                          </p>
+                          <p className="text-[10px] text-slate-400">Net in-hand</p>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -833,10 +1074,10 @@ export default function ViewModelPage() {
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between rounded-b-3xl">
               <div>
                 <p className="text-xs font-black text-slate-900">
-                  {selectedBorrowerIds.length} Borrowers Selected
+                  {activeSelectedBorrowerIds.length} Borrowers Selected (Month {activeConfigMonth})
                 </p>
                 <p className="text-[10px] text-slate-500">
-                  Total Disbursed: {formatCurrency(selectedBorrowerIds.length * netInHandPerPerson, currency)}
+                  Total Disbursed: {formatCurrency(activeSelectedBorrowerIds.length * activeNetInHandPerPerson, currency)}
                 </p>
               </div>
 
@@ -844,7 +1085,7 @@ export default function ViewModelPage() {
                 onClick={() => setIsBorrowerModalOpen(false)}
                 className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md transition active:scale-95"
               >
-                Done & Apply ({selectedBorrowerIds.length} People)
+                Done & Apply ({activeSelectedBorrowerIds.length} People)
               </button>
             </div>
           </div>
@@ -873,15 +1114,15 @@ export default function ViewModelPage() {
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-emerald-200/80 bg-emerald-50/20 shadow-sm hover:shadow-md transition">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
-              {currentMonthData.month === refinanceAtMonth ? 'Disbursal Summary' : 'New Loans Passed'}
+              {currentMonthData.refinanceTriggered ? 'Disbursal Summary' : 'New Loans Passed'}
             </span>
             <div className="h-9 w-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
               <Landmark className="h-5 w-5" />
             </div>
           </div>
           <p className="text-2xl font-black text-emerald-700 mt-2">
-            {currentMonthData.month === refinanceAtMonth ? (
-              <span>+{selectedBorrowerIds.length} Renewals</span>
+            {currentMonthData.refinanceTriggered ? (
+              <span>+{currentMonthData.refinanceBorrowers} Renewals</span>
             ) : (
               <span>+{currentMonthData.newLoansFunded} Loans</span>
             )}
@@ -946,14 +1187,14 @@ export default function ViewModelPage() {
 
           <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-1">
             <span className="text-[10px] uppercase font-bold text-emerald-800">
-              {currentMonthData.month === refinanceAtMonth ? 'Step 3: Loans & Renewals' : 'Step 3: New Loans Passed'}
+              {currentMonthData.refinanceTriggered ? 'Step 3: Loans & Renewals' : 'Step 3: New Loans Passed'}
             </span>
             <p className="text-sm font-black text-emerald-700">
               {formatCurrency(currentMonthData.newDisbursedInHand, currency)} Disbursed
             </p>
             <p className="text-emerald-800">
-              {currentMonthData.month === refinanceAtMonth 
-                ? `${selectedBorrowerIds.length} renewed @ ${formatCurrency(netInHandPerPerson, currency)} in-hand + ${currentMonthData.newLoansFunded} regular loans` 
+              {currentMonthData.refinanceTriggered 
+                ? `${currentMonthData.refinanceBorrowers} renewed @ ${formatCurrency(currentMonthData.refinanceNetInHandPerPerson || 0, currency)} in-hand + ${currentMonthData.newLoansFunded} regular loans` 
                 : `${currentMonthData.newLoansFunded} new loans @ ₹55,000 in-hand cash`}
             </p>
           </div>
@@ -975,14 +1216,14 @@ export default function ViewModelPage() {
               <span>Full 30-Month Compounding & Refinancing Ledger Table</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Click any row to jump to that month. Row with glowing border is the current simulated month. Month {refinanceAtMonth} features refinancing milestone.
+              Click any row to jump to that month. Row with glowing border is the current simulated month. Golden rows feature refinancing milestones.
             </p>
           </div>
 
           <div className="flex items-center gap-3 text-xs">
             <span className="flex items-center gap-1.5 text-amber-700 font-bold bg-amber-50 px-2 py-1 rounded-md border border-amber-200">
               <Sparkles className="h-3 w-3" />
-              <span>Month {refinanceAtMonth} = Refinancing Event</span>
+              <span>Refinance Active: {configuredRefinanceMonths.map((m) => `M${m}`).join(', ')}</span>
             </span>
           </div>
         </div>
@@ -1005,7 +1246,7 @@ export default function ViewModelPage() {
             <tbody className="divide-y divide-slate-100 font-medium">
               {simulationData.map((row) => {
                 const isCurrent = row.month === currentMonthIndex;
-                const isRefinanceMonth = row.month === refinanceAtMonth;
+                const isRefinanceMonth = !!row.refinanceTriggered;
 
                 return (
                   <tr
@@ -1013,6 +1254,9 @@ export default function ViewModelPage() {
                     onClick={() => {
                       setIsPlaying(false);
                       setCurrentMonthIndex(row.month);
+                      if (configuredRefinanceMonths.includes(row.month)) {
+                        setActiveConfigMonth(row.month);
+                      }
                     }}
                     className={`cursor-pointer transition-all ${
                       isCurrent
@@ -1039,7 +1283,7 @@ export default function ViewModelPage() {
                             <span>Month {row.month}</span>
                             {isRefinanceMonth && (
                               <span className="px-1.5 py-0.2 bg-amber-200 text-amber-900 text-[10px] font-black rounded">
-                                Refinance
+                                Refinance ({row.refinanceBorrowers})
                               </span>
                             )}
                           </p>
@@ -1068,7 +1312,7 @@ export default function ViewModelPage() {
                       {isRefinanceMonth ? (
                         <div className="flex flex-col gap-0.5">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-200 text-amber-950 font-black text-xs">
-                            🔄 {selectedBorrowerIds.length} Renewed (₹80k)
+                            🔄 {row.refinanceBorrowers} Renewed (₹80k)
                           </span>
                           {row.newLoansFunded > 0 && (
                             <span className="text-[10px] text-emerald-700 font-bold">

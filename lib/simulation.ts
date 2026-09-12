@@ -35,6 +35,15 @@ export interface SimulationMonthData {
   refinanceOldSettledTotal?: number;
 }
 
+export interface MonthRefinanceConfig {
+  count: number;
+  borrowerIds?: number[];
+  sanctioned?: number;
+  fileCharge?: number;
+  monthlyEmi?: number;
+  tenureMonths?: number;
+}
+
 export interface SimulationConfig {
   initialLoans?: number;
   sanctionedAmount?: number;
@@ -45,7 +54,7 @@ export interface SimulationConfig {
   startDate?: string;
   reinvestFileCharges?: boolean;
 
-  // Refinancing Configuration
+  // Single Refinancing Configuration (Fallback)
   refinanceEnabled?: boolean;
   refinanceAtMonth?: number;
   refinanceCount?: number;
@@ -53,6 +62,9 @@ export interface SimulationConfig {
   refinanceFileCharge?: number;
   refinanceMonthlyEmi?: number;
   refinanceTenureMonths?: number;
+
+  // Multi-Month Refinancing Map (Keyed by Month number e.g. 16, 17, 18...)
+  monthlyRefinances?: Record<number, MonthRefinanceConfig>;
 }
 
 interface LoanCohort {
@@ -73,7 +85,7 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
   const startDateStr = config?.startDate ?? new Date().toISOString().split('T')[0];
   const reinvestFileCharges = config?.reinvestFileCharges ?? false;
 
-  // Refinancing parameters
+  // Refinancing parameters (defaults & multi-month mapping)
   const refinanceEnabled = config?.refinanceEnabled ?? true;
   const refinanceAtMonth = config?.refinanceAtMonth ?? 16;
   const refinanceCount = config?.refinanceCount ?? 8;
@@ -81,6 +93,20 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
   const refinanceFileCharge = config?.refinanceFileCharge ?? 6000;
   const refinanceMonthlyEmi = config?.refinanceMonthlyEmi ?? 4050;
   const refinanceTenureMonths = config?.refinanceTenureMonths ?? 30;
+
+  // Build map of refinance events per month
+  const monthlyRefinancesMap: Record<number, MonthRefinanceConfig> = {};
+  if (config?.monthlyRefinances) {
+    Object.assign(monthlyRefinancesMap, config.monthlyRefinances);
+  } else if (refinanceEnabled && refinanceAtMonth) {
+    monthlyRefinancesMap[refinanceAtMonth] = {
+      count: refinanceCount,
+      sanctioned: refinanceSanctioned,
+      fileCharge: refinanceFileCharge,
+      monthlyEmi: refinanceMonthlyEmi,
+      tenureMonths: refinanceTenureMonths,
+    };
+  }
 
   // Active loan cohorts: tracks count, months remaining, and EMI
   let cohorts: LoanCohort[] = [
@@ -134,17 +160,24 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
     let newDisbursedInHand = 0;
     let newFileChargesEarned = 0;
 
-    // Check if this month is the refinancing month
-    if (refinanceEnabled && m === refinanceAtMonth) {
+    // Check if this month has a refinancing event configured
+    const currentMonthRefinance = refinanceEnabled ? monthlyRefinancesMap[m] : undefined;
+    if (currentMonthRefinance && currentMonthRefinance.count > 0) {
       refinanceTriggered = true;
-      refBorrowers = refinanceCount;
+      refBorrowers = currentMonthRefinance.count;
+      refSanctionedPerPerson = currentMonthRefinance.sanctioned ?? refinanceSanctioned;
+      refFileChargePerPerson = currentMonthRefinance.fileCharge ?? refinanceFileCharge;
+      const refEmi = currentMonthRefinance.monthlyEmi ?? refinanceMonthlyEmi;
+      const refTenure = currentMonthRefinance.tenureMonths ?? refinanceTenureMonths;
 
-      // Calculate remaining EMIs for the initial base cohort
-      // At Month 16, they have paid 16 EMIs. Remaining = 20 - 16 = 4 EMIs.
+      // Calculate remaining EMIs for the initial base cohort at Month m
+      // e.g. At Month 16: paid 16 EMIs, remaining = 20 - 16 = 4 EMIs (4 * 4050 = 16,200)
+      // e.g. At Month 17: paid 17 EMIs, remaining = 20 - 17 = 3 EMIs (3 * 4050 = 12,150)
+      // e.g. At Month 18: paid 18 EMIs, remaining = 20 - 18 = 2 EMIs (2 * 4050 = 8,100)
       refOldEmisRemaining = Math.max(0, tenureMonths - m);
-      refOldSettledPerPerson = refOldEmisRemaining * monthlyEmi; // 4 * 4050 = 16,200
-      refNetInHandPerPerson = refSanctionedPerPerson - refFileChargePerPerson - refOldSettledPerPerson; // 80000 - 6000 - 16200 = 57,800
-      refTotalNetRequired = refBorrowers * refNetInHandPerPerson; // e.g. 8 * 57800 = 462,400
+      refOldSettledPerPerson = refOldEmisRemaining * monthlyEmi;
+      refNetInHandPerPerson = refSanctionedPerPerson - refFileChargePerPerson - refOldSettledPerPerson;
+      refTotalNetRequired = refBorrowers * refNetInHandPerPerson;
 
       refMaxAffordable = refNetInHandPerPerson > 0 ? Math.floor(pool / refNetInHandPerPerson) : 0;
       refIsDeficit = refTotalNetRequired > pool;
@@ -168,13 +201,12 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
         // Add refinanced cohort (starts paying next month)
         cohorts.push({
           count: refBorrowers,
-          monthsLeft: refinanceTenureMonths,
-          emi: refinanceMonthlyEmi,
+          monthsLeft: refTenure,
+          emi: refEmi,
           isInitial: false,
         });
       } else {
-        // In deficit scenario: simulation can disburse up to maxAffordable,
-        // or record the deficit so the user can adjust in UI.
+        // In deficit scenario: disburse up to maxAffordable
         const affordableCount = Math.min(refBorrowers, refMaxAffordable);
         if (affordableCount > 0) {
           const disbursed = affordableCount * refNetInHandPerPerson;
@@ -190,8 +222,8 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
 
           cohorts.push({
             count: affordableCount,
-            monthsLeft: refinanceTenureMonths,
-            emi: refinanceMonthlyEmi,
+            monthsLeft: refTenure,
+            emi: refEmi,
             isInitial: false,
           });
         }
