@@ -404,23 +404,18 @@ export default function ViewModelPage() {
     if (rowsToExport.length === 0) return;
 
     const headers = [
-      'Month',
-      'Date',
-      'Active Paying Borrowers',
-      'Monthly EMI Inflow (₹)',
-      'Available Cash Pool (₹)',
-      'Disbursal Action',
-      'Cash Outflow Disbursed (₹)',
-      'File Charges Earned (₹)',
-      'Bank Surplus Bacha (₹)',
-      'Market Total Cash (₹)',
-      'New Market Cash Injected (₹)',
-      'Next Month Borrowers',
-      'Refinance Event?',
-      'Renewed Borrowers Count',
-      'Old EMIs Settled Total (₹)',
-      'Net In-Hand Per Person (₹)',
-      'Pool Deficit?',
+      'TIMELINE',
+      'DATE',
+      'ACTIVE BORROWERS',
+      'MONTHLY EMI INFLOW',
+      'AVAILABLE FUND',
+      'DISBURSAL ACTION',
+      'CASH OUTFLOW',
+      'FILE CHARGE EARNED',
+      'BANK BACHA (SURPLUS)',
+      'MARKET ME TOTAL CASH',
+      'MARKET CASH INJECTED',
+      'NEXT ACTIVE',
     ];
 
     const escapeCsv = (str: string | number) => {
@@ -449,26 +444,21 @@ export default function ViewModelPage() {
     rowsToExport.forEach((row) => {
       const disbursalText = row.refinanceTriggered
         ? `${row.refinanceBorrowers} Renewed${row.newLoansFunded > 0 ? ` + ${row.newLoansFunded} New` : ''}`
-        : `${row.newLoansFunded} Regular Loans`;
+        : `${row.newLoansFunded} Loans`;
 
       csvRows.push([
-        row.month,
+        `Month ${row.month}`,
         row.dateStr,
-        row.activePayingLoans,
-        row.emiCollected,
-        row.availablePool,
+        `${row.activePayingLoans} Borrowers`,
+        `₹${row.emiCollected.toLocaleString('en-IN')}`,
+        `₹${row.availablePool.toLocaleString('en-IN')}`,
         disbursalText,
-        row.newDisbursedInHand,
-        row.newFileChargesEarned,
-        row.surplusRemaining,
-        row.marketOutstandingCash,
-        row.newLoansMarketValue,
+        `₹${row.newDisbursedInHand.toLocaleString('en-IN')}`,
+        `+₹${row.newFileChargesEarned.toLocaleString('en-IN')}`,
+        `₹${row.surplusRemaining.toLocaleString('en-IN')}`,
+        `₹${row.marketOutstandingCash.toLocaleString('en-IN')}`,
+        row.newLoansMarketValue > 0 ? `+₹${row.newLoansMarketValue.toLocaleString('en-IN')}` : '₹0',
         row.nextMonthActiveLoans,
-        row.refinanceTriggered ? 'YES' : 'NO',
-        row.refinanceBorrowers || 0,
-        row.refinanceOldSettledTotal || 0,
-        row.refinanceNetInHandPerPerson || 0,
-        row.refinanceIsDeficit ? `DEFICIT (₹${row.refinanceDeficitAmount})` : 'NO',
       ].map(escapeCsv).join(','));
     });
 
@@ -488,6 +478,80 @@ export default function ViewModelPage() {
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', `Loan_Simulation_M${exportStartMonth}_to_M${exportEndMonth}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Download formatted Excel sheet (.xls) with exact colors & table styles matching view
+  const handleExportExcel = () => {
+    if (rowsToExport.length === 0) return;
+
+    const htmlContent = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; font-size: 11px; }
+          .title { font-size: 15px; font-weight: bold; color: #1e1b4b; margin-bottom: 4px; }
+          .subtitle { font-size: 11px; color: #64748b; margin-bottom: 12px; }
+          table { border-collapse: collapse; width: 100%; }
+          th { background-color: #f8fafc; color: #475569; font-size: 10px; font-weight: bold; text-transform: uppercase; border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
+          td { border: 1px solid #e2e8f0; padding: 8px 10px; font-size: 11px; text-align: left; }
+          .inflow { color: #1d4ed8; font-weight: bold; }
+          .outflow { color: #047857; font-weight: bold; }
+          .fee { color: #7e22ce; font-weight: bold; }
+          .surplus { background-color: #faf5ff; font-weight: bold; color: #581c87; }
+          .market { background-color: #fefce8; font-weight: bold; color: #78350f; }
+          .action-badge { background-color: #d1fae5; color: #065f46; font-weight: bold; padding: 2px 6px; border-radius: 4px; }
+          .refinance-badge { background-color: #fef3c7; color: #78350f; font-weight: bold; padding: 2px 6px; border-radius: 4px; }
+        </style>
+      </head>
+      <body>
+        <div class="title">LOAN REINVESTMENT & CASHFLOW COMPOUNDING SIMULATION REPORT</div>
+        <div class="subtitle">Timeline: Month ${exportStartMonth} to Month ${exportEndMonth} (${rowsToExport.length} Months) | Refinance Active In: ${exportRefinanceMonths.sort((a,b)=>a-b).map(m => 'Month ' + m).join(', ') || 'None'}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>TIMELINE</th>
+              <th>ACTIVE BORROWERS</th>
+              <th>MONTHLY EMI INFLOW</th>
+              <th>AVAILABLE FUND</th>
+              <th>DISBURSAL ACTION</th>
+              <th>CASH OUTFLOW</th>
+              <th>FILE CHARGE EARNED</th>
+              <th style="background-color: #f3e8ff;">BANK BACHA (SURPLUS)</th>
+              <th style="background-color: #fef9c3;">MARKET ME TOTAL CASH</th>
+              <th>NEXT ACTIVE</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsToExport.map((row) => `
+              <tr>
+                <td>Month ${row.month} (${row.dateStr})</td>
+                <td><strong>${row.activePayingLoans}</strong> Borrowers</td>
+                <td class="inflow">₹${row.emiCollected.toLocaleString('en-IN')}</td>
+                <td>₹${row.availablePool.toLocaleString('en-IN')}</td>
+                <td>${row.refinanceTriggered ? `<span class="refinance-badge">🔄 ${row.refinanceBorrowers} Renewed (₹80k)</span>` : `<span class="action-badge">+${row.newLoansFunded} Loans</span>`}</td>
+                <td class="outflow">₹${row.newDisbursedInHand.toLocaleString('en-IN')}</td>
+                <td class="fee">+₹${row.newFileChargesEarned.toLocaleString('en-IN')}</td>
+                <td class="surplus">₹${row.surplusRemaining.toLocaleString('en-IN')}</td>
+                <td class="market">₹${row.marketOutstandingCash.toLocaleString('en-IN')}${row.newLoansMarketValue > 0 ? ` (+₹${row.newLoansMarketValue.toLocaleString('en-IN')})` : ''}</td>
+                <td><strong>${row.nextMonthActiveLoans}</strong></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Loan_Simulation_M${exportStartMonth}_to_M${exportEndMonth}.xls`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1938,15 +2002,156 @@ export default function ViewModelPage() {
                   </div>
                 </div>
               </div>
+
+              {/* SECTION 3: LIVE EXPORT DATA TABLE (MATCHING USER'S EXACT SCREENSHOT) */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-2">
+                <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                      <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                      3. Live Export Table Preview ({rowsToExport.length} Months Selected)
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Yeh exact table export file me generate hogi (Month {exportStartMonth} se Month {exportEndMonth}):
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-500 bg-white px-2.5 py-1 rounded-lg border border-slate-200 self-start sm:self-auto">
+                    Scroll horizontally/vertically to review
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
+                  <table className="w-full text-left text-xs min-w-[980px]">
+                    <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="py-3 px-3.5">TIMELINE</th>
+                        <th className="py-3 px-3.5">ACTIVE BORROWERS</th>
+                        <th className="py-3 px-3.5">MONTHLY EMI INFLOW</th>
+                        <th className="py-3 px-3.5">AVAILABLE FUND</th>
+                        <th className="py-3 px-3.5 text-emerald-800 bg-emerald-50/70">DISBURSAL ACTION</th>
+                        <th className="py-3 px-3.5">CASH OUTFLOW</th>
+                        <th className="py-3 px-3.5 text-purple-800 bg-purple-50/70">FILE CHARGE EARNED</th>
+                        <th className="py-3 px-3.5 text-purple-900 bg-purple-100/60 font-black">BANK BACHA (SURPLUS)</th>
+                        <th className="py-3 px-3.5 text-amber-900 bg-amber-100/80 font-black">MARKET ME TOTAL CASH</th>
+                        <th className="py-3 px-3.5">NEXT ACTIVE</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {rowsToExport.map((row) => {
+                        const isRefinanceMonth = !!row.refinanceTriggered;
+                        return (
+                          <tr
+                            key={row.month}
+                            className={`transition-colors ${
+                              isRefinanceMonth ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-slate-50/80'
+                            }`}
+                          >
+                            {/* TIMELINE */}
+                            <td className="py-3 px-3.5 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <span className={`h-6 w-6 rounded-lg text-xs font-bold flex items-center justify-center ${
+                                  isRefinanceMonth ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  M{row.month}
+                                </span>
+                                <div>
+                                  <p className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+                                    <span>Month {row.month}</span>
+                                    {isRefinanceMonth && (
+                                      <span className="px-1.5 py-0.2 bg-amber-200 text-amber-900 text-[10px] font-black rounded">
+                                        Refinance ({row.refinanceBorrowers})
+                                      </span>
+                                    )}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400 font-normal">{row.dateStr}</p>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* ACTIVE BORROWERS */}
+                            <td className="py-3 px-3.5 whitespace-nowrap">
+                              <strong className="text-slate-900 font-black">{row.activePayingLoans}</strong> Borrowers
+                            </td>
+
+                            {/* MONTHLY EMI INFLOW */}
+                            <td className="py-3 px-3.5 whitespace-nowrap font-black text-blue-600">
+                              {formatCurrency(row.emiCollected, currency)}
+                            </td>
+
+                            {/* AVAILABLE FUND */}
+                            <td className="py-3 px-3.5 whitespace-nowrap font-semibold text-slate-600">
+                              {formatCurrency(row.availablePool, currency)}
+                            </td>
+
+                            {/* DISBURSAL ACTION */}
+                            <td className="py-3 px-3.5 whitespace-nowrap bg-emerald-50/30">
+                              {isRefinanceMonth ? (
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-200 text-amber-950 font-black text-[11px]">
+                                    🔄 {row.refinanceBorrowers} Renewed (₹80k)
+                                  </span>
+                                  {row.newLoansFunded > 0 && (
+                                    <span className="text-[10px] text-emerald-700 font-bold">
+                                      +{row.newLoansFunded} regular loans
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-black text-[11px]">
+                                  +{row.newLoansFunded} Loans
+                                </span>
+                              )}
+                            </td>
+
+                            {/* CASH OUTFLOW */}
+                            <td className="py-3 px-3.5 whitespace-nowrap font-bold text-emerald-700">
+                              {formatCurrency(row.newDisbursedInHand, currency)}
+                            </td>
+
+                            {/* FILE CHARGE EARNED */}
+                            <td className="py-3 px-3.5 whitespace-nowrap font-extrabold text-purple-700 bg-purple-50/30">
+                              +{formatCurrency(row.newFileChargesEarned, currency)}
+                            </td>
+
+                            {/* BANK BACHA (SURPLUS) */}
+                            <td className="py-3 px-3.5 whitespace-nowrap text-slate-500 font-mono text-xs bg-purple-50/20">
+                              {formatCurrency(row.surplusRemaining, currency)}
+                            </td>
+
+                            {/* MARKET ME TOTAL CASH */}
+                            <td className="py-3 px-3.5 whitespace-nowrap bg-amber-50/60">
+                              <div>
+                                <span className="text-amber-950 font-black text-xs">
+                                  {formatCurrency(row.marketOutstandingCash, currency)}
+                                </span>
+                                {row.newLoansMarketValue > 0 && (
+                                  <p className="text-[10px] text-amber-700 font-bold">
+                                    +{formatCurrency(row.newLoansMarketValue, currency)}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* NEXT ACTIVE */}
+                            <td className="py-3 px-3.5 whitespace-nowrap font-black text-slate-900">
+                              {row.nextMonthActiveLoans}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
 
             {/* Modal Footer with Action Buttons */}
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handleCopyTSV}
-                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 flex items-center gap-1.5 transition active:scale-95 shadow-sm"
                   title="Copy data formatted for direct Excel paste"
                 >
                   <Copy className="h-4 w-4 text-slate-500" />
@@ -1956,7 +2161,7 @@ export default function ViewModelPage() {
                 <button
                   type="button"
                   onClick={handlePrint}
-                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 flex items-center gap-1.5 transition active:scale-95 shadow-sm"
                   title="Print or Save PDF"
                 >
                   <Printer className="h-4 w-4 text-slate-500" />
@@ -1964,7 +2169,7 @@ export default function ViewModelPage() {
                 </button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsExportModalOpen(false)}
@@ -1976,10 +2181,21 @@ export default function ViewModelPage() {
                 <button
                   type="button"
                   onClick={handleExportCSV}
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition active:scale-95"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition active:scale-95"
+                  title="Download standard CSV"
                 >
-                  <Download className="h-4 w-4 stroke-[2.5]" />
-                  <span>Download Excel / CSV (.csv)</span>
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Download CSV (.csv)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition active:scale-95"
+                  title="Download fully formatted Excel spreadsheet"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  <span>Download Excel (.xls)</span>
                 </button>
               </div>
             </div>
