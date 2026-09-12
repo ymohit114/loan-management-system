@@ -1,0 +1,3 @@
+# Robots.txt for Loan Management System
+User-agent: *
+Allow: /
