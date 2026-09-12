@@ -33,7 +33,12 @@ import {
   UserCheck,
   CheckSquare,
   Square,
-  CalendarCheck
+  CalendarCheck,
+  Download,
+  FileSpreadsheet,
+  Printer,
+  Copy,
+  FileText
 } from 'lucide-react';
 import { generateSimulationData, SimulationMonthData, MonthRefinanceConfig } from '@/lib/simulation';
 import { BASE_43_BORROWERS, ALL_BORROWERS, getBorrowerById, BorrowerProfile } from '@/lib/borrowersData';
@@ -73,6 +78,14 @@ export default function ViewModelPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [tableDisplayMode, setTableDisplayMode] = useState<'stepper' | 'all'>('stepper');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Export Modal State & Parameters
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportStartMonth, setExportStartMonth] = useState(1);
+  const [exportEndMonth, setExportEndMonth] = useState(30);
+  const [exportRefinanceMonths, setExportRefinanceMonths] = useState<number[]>([16]);
+  const [customRefinanceInput, setCustomRefinanceInput] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Active configured months list (e.g. [16, 17])
   const configuredRefinanceMonths = React.useMemo(() => {
@@ -314,6 +327,221 @@ export default function ViewModelPage() {
     b.area.toLowerCase().includes(borrowerSearchQuery.toLowerCase())
   );
 
+  // Open Export Modal with current configuration pre-selected
+  const handleOpenExportModal = () => {
+    const activeMonths = Object.keys(monthlyBorrowersMap)
+      .map(Number)
+      .filter((m) => monthlyBorrowersMap[m] && monthlyBorrowersMap[m].length > 0);
+    setExportRefinanceMonths(activeMonths.length > 0 ? activeMonths : [16]);
+    setExportEndMonth(Math.min(totalSimulationMonths, Math.max(30, currentMonthIndex)));
+    setIsExportModalOpen(true);
+  };
+
+  // Dynamic simulation projection for export according to user's selected refinance schedule
+  const exportSimulationData = React.useMemo(() => {
+    if (!isExportModalOpen) return [];
+    const monthlyRefinances: Record<number, MonthRefinanceConfig> = {};
+    exportRefinanceMonths.forEach((m) => {
+      const borrowers = monthlyBorrowersMap[m] || [];
+      const count = borrowers.length > 0 ? borrowers.length : 8;
+      monthlyRefinances[m] = {
+        count,
+        borrowerIds: borrowers,
+        sanctioned: refinanceSanctioned,
+        fileCharge: refinanceFileCharge,
+        monthlyEmi: refinanceMonthlyEmi,
+        tenureMonths: refinanceTenureMonths,
+      };
+    });
+
+    const targetTotalMonths = Math.max(exportEndMonth, 30);
+    return generateSimulationData({
+      initialLoans,
+      sanctionedAmount: loanPrincipal,
+      fileCharge,
+      monthlyEmi,
+      tenureMonths: 20,
+      totalMonths: targetTotalMonths,
+      reinvestFileCharges,
+      refinanceEnabled: exportRefinanceMonths.length > 0,
+      monthlyRefinances,
+    });
+  }, [
+    isExportModalOpen,
+    exportRefinanceMonths,
+    exportEndMonth,
+    monthlyBorrowersMap,
+    refinanceSanctioned,
+    refinanceFileCharge,
+    refinanceMonthlyEmi,
+    refinanceTenureMonths,
+    initialLoans,
+    loanPrincipal,
+    fileCharge,
+    monthlyEmi,
+    reinvestFileCharges,
+  ]);
+
+  const rowsToExport = React.useMemo(() => {
+    if (!isExportModalOpen || exportSimulationData.length === 0) return [];
+    return exportSimulationData.filter(
+      (row) => row.month >= exportStartMonth && row.month <= exportEndMonth
+    );
+  }, [isExportModalOpen, exportSimulationData, exportStartMonth, exportEndMonth]);
+
+  const exportTotals = React.useMemo(() => {
+    const totalCollected = rowsToExport.reduce((acc, r) => acc + r.emiCollected, 0);
+    const totalDisbursed = rowsToExport.reduce((acc, r) => acc + r.newDisbursedInHand, 0);
+    const totalFees = rowsToExport.reduce((acc, r) => acc + r.newFileChargesEarned, 0);
+    const peakMarketCash = rowsToExport.length > 0 ? Math.max(...rowsToExport.map((r) => r.marketOutstandingCash)) : 0;
+    const finalSurplus = rowsToExport[rowsToExport.length - 1]?.surplusRemaining || 0;
+    const finalBorrowers = rowsToExport[rowsToExport.length - 1]?.nextMonthActiveLoans || 0;
+    return { totalCollected, totalDisbursed, totalFees, peakMarketCash, finalSurplus, finalBorrowers };
+  }, [rowsToExport]);
+
+  // CSV Export Download
+  const handleExportCSV = () => {
+    if (rowsToExport.length === 0) return;
+
+    const headers = [
+      'Month',
+      'Date',
+      'Active Paying Borrowers',
+      'Monthly EMI Inflow (₹)',
+      'Available Cash Pool (₹)',
+      'Disbursal Action',
+      'Cash Outflow Disbursed (₹)',
+      'File Charges Earned (₹)',
+      'Bank Surplus Bacha (₹)',
+      'Market Total Cash (₹)',
+      'New Market Cash Injected (₹)',
+      'Next Month Borrowers',
+      'Refinance Event?',
+      'Renewed Borrowers Count',
+      'Old EMIs Settled Total (₹)',
+      'Net In-Hand Per Person (₹)',
+      'Pool Deficit?',
+    ];
+
+    const escapeCsv = (str: string | number) => {
+      const s = String(str);
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return `"${s}"`;
+    };
+
+    const csvRows: string[] = [];
+
+    // Title & Executive Metadata
+    csvRows.push(['LOAN REINVESTMENT & CASHFLOW COMPOUNDING SIMULATION REPORT'].map(escapeCsv).join(','));
+    csvRows.push([`Export Range: Month ${exportStartMonth} to Month ${exportEndMonth} (${rowsToExport.length} Months)`].map(escapeCsv).join(','));
+    csvRows.push([`Base Portfolio: ${initialLoans} Borrowers @ ₹${loanPrincipal.toLocaleString('en-IN')} (EMI: ₹${monthlyEmi.toLocaleString('en-IN')}/mo)`].map(escapeCsv).join(','));
+    csvRows.push([`Refinance Active In: ${exportRefinanceMonths.length > 0 ? exportRefinanceMonths.sort((a,b)=>a-b).map(m => `Month ${m}`).join(', ') : 'None'}`].map(escapeCsv).join(','));
+    csvRows.push([`Refinance Terms: ₹${refinanceSanctioned.toLocaleString('en-IN')} Sanctioned, ${refinanceTenureMonths} Months @ ₹${refinanceMonthlyEmi.toLocaleString('en-IN')}/mo`].map(escapeCsv).join(','));
+    csvRows.push([`Generated On: ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`].map(escapeCsv).join(','));
+    csvRows.push(''); // Blank line
+
+    // Header Row
+    csvRows.push(headers.map(escapeCsv).join(','));
+
+    // Data Rows
+    rowsToExport.forEach((row) => {
+      const disbursalText = row.refinanceTriggered
+        ? `${row.refinanceBorrowers} Renewed${row.newLoansFunded > 0 ? ` + ${row.newLoansFunded} New` : ''}`
+        : `${row.newLoansFunded} Regular Loans`;
+
+      csvRows.push([
+        row.month,
+        row.dateStr,
+        row.activePayingLoans,
+        row.emiCollected,
+        row.availablePool,
+        disbursalText,
+        row.newDisbursedInHand,
+        row.newFileChargesEarned,
+        row.surplusRemaining,
+        row.marketOutstandingCash,
+        row.newLoansMarketValue,
+        row.nextMonthActiveLoans,
+        row.refinanceTriggered ? 'YES' : 'NO',
+        row.refinanceBorrowers || 0,
+        row.refinanceOldSettledTotal || 0,
+        row.refinanceNetInHandPerPerson || 0,
+        row.refinanceIsDeficit ? `DEFICIT (₹${row.refinanceDeficitAmount})` : 'NO',
+      ].map(escapeCsv).join(','));
+    });
+
+    // Summary Statistics
+    csvRows.push('');
+    csvRows.push(['PORTFOLIO SUMMARY TOTALS & PEAK HIGHLIGHTS'].map(escapeCsv).join(','));
+    csvRows.push(['Total EMI Cash Collected', `₹${exportTotals.totalCollected.toLocaleString('en-IN')}`].map(escapeCsv).join(','));
+    csvRows.push(['Total Cash Disbursed in Hand', `₹${exportTotals.totalDisbursed.toLocaleString('en-IN')}`].map(escapeCsv).join(','));
+    csvRows.push(['Total Upfront Fees Earned', `₹${exportTotals.totalFees.toLocaleString('en-IN')}`].map(escapeCsv).join(','));
+    csvRows.push(['Peak Market Cash Reached', `₹${exportTotals.peakMarketCash.toLocaleString('en-IN')}`].map(escapeCsv).join(','));
+    csvRows.push(['Final Month Bank Surplus', `₹${exportTotals.finalSurplus.toLocaleString('en-IN')}`].map(escapeCsv).join(','));
+    csvRows.push(['Final Month Active Borrowers', `${exportTotals.finalBorrowers} Borrowers`].map(escapeCsv).join(','));
+
+    const csvContent = '\uFEFF' + csvRows.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Loan_Simulation_M${exportStartMonth}_to_M${exportEndMonth}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Copy to Clipboard in Tab-Separated format (Pastes cleanly into Excel)
+  const handleCopyTSV = () => {
+    if (rowsToExport.length === 0) return;
+
+    const headers = [
+      'Month',
+      'Date',
+      'Active Borrowers',
+      'EMI Inflow (₹)',
+      'Available Fund (₹)',
+      'Disbursal Action',
+      'Cash Outflow (₹)',
+      'Fee Profit (₹)',
+      'Bank Surplus (₹)',
+      'Market Total Cash (₹)',
+      'Next Active',
+    ];
+
+    const tsvRows = [headers.join('\t')];
+    rowsToExport.forEach((row) => {
+      const disbursalText = row.refinanceTriggered
+        ? `${row.refinanceBorrowers} Renewed${row.newLoansFunded > 0 ? ` + ${row.newLoansFunded} New` : ''}`
+        : `${row.newLoansFunded} Loans`;
+
+      tsvRows.push([
+        row.month,
+        row.dateStr,
+        row.activePayingLoans,
+        row.emiCollected,
+        row.availablePool,
+        disbursalText,
+        row.newDisbursedInHand,
+        row.newFileChargesEarned,
+        row.surplusRemaining,
+        row.marketOutstandingCash,
+        row.nextMonthActiveLoans,
+      ].join('\t'));
+    });
+
+    navigator.clipboard.writeText(tsvRows.join('\n'));
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2500);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -363,6 +591,16 @@ export default function ViewModelPage() {
           >
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">Refinance Setup</span>
+          </button>
+
+          <button
+            onClick={handleOpenExportModal}
+            className="p-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black flex items-center gap-1.5 shadow-md hover:shadow-lg transition active:scale-95"
+            title="Export Simulation Data to Excel / CSV / PDF"
+          >
+            <Download className="h-4 w-4 stroke-[2.5]" />
+            <span className="hidden sm:inline">Export Data</span>
+            <span className="sm:hidden">Export</span>
           </button>
         </div>
       </div>
@@ -1388,6 +1626,367 @@ export default function ViewModelPage() {
         </div>
       )}
 
+      {/* EXPORT CONFIGURATION & DOWNLOAD MODAL */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 flex items-center justify-center shadow-inner">
+                  <FileSpreadsheet className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <span>Export Simulation Data & Report</span>
+                    <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 border border-emerald-400/40">
+                      Excel / CSV / PDF
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    Custom range select karein aur chunen kis kis month me refinance include karna hai.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="p-2 hover:bg-white/10 rounded-xl text-slate-400 hover:text-white transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-6 flex-1 text-slate-800">
+              {/* SECTION 1: KITNE MONTHS KA EXPORT KARNA HAI */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <Calendar className="h-4 w-4 text-indigo-600" />
+                      1. Kitne Months Ka Data Export Karna Hai? (Timeline Range)
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Month range chunein (e.g. 1 se 30 ya koi bhi custom range):
+                    </p>
+                  </div>
+                  <span className="px-3 py-1 bg-indigo-50 text-indigo-700 font-extrabold text-xs rounded-xl border border-indigo-200 self-start sm:self-auto">
+                    📅 Selected: {Math.max(0, exportEndMonth - exportStartMonth + 1)} Months (M{exportStartMonth} → M{exportEndMonth})
+                  </span>
+                </div>
+
+                {/* Quick Range Presets */}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <span className="text-[11px] font-bold text-slate-400 self-center mr-1">Presets:</span>
+                  {[
+                    { label: '1 - 12 (1 Year)', start: 1, end: 12 },
+                    { label: '1 - 20 (Base Cycle)', start: 1, end: 20 },
+                    { label: '1 - 30 (Refinance Cycle)', start: 1, end: 30 },
+                    { label: '1 - 60 (5 Years)', start: 1, end: 60 },
+                    { label: `1 - ${currentMonthIndex} (Current View)`, start: 1, end: currentMonthIndex },
+                    { label: `All ${totalSimulationMonths} Months`, start: 1, end: totalSimulationMonths },
+                  ].map((preset) => {
+                    const isSelected = exportStartMonth === preset.start && exportEndMonth === preset.end;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setExportStartMonth(preset.start);
+                          setExportEndMonth(preset.end);
+                          if (preset.end > totalSimulationMonths) {
+                            setTotalSimulationMonths(preset.end);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white shadow-sm font-black'
+                            : 'bg-white hover:bg-slate-200 text-slate-700 border border-slate-200'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom Month Range Inputs */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-200/80">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 uppercase block mb-1">
+                      From Month:
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={exportEndMonth}
+                      value={exportStartMonth}
+                      onChange={(e) => {
+                        const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                        setExportStartMonth(Math.min(val, exportEndMonth));
+                      }}
+                      className="w-full px-3 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 uppercase block mb-1">
+                      To Month:
+                    </label>
+                    <input
+                      type="number"
+                      min={exportStartMonth}
+                      max={120}
+                      value={exportEndMonth}
+                      onChange={(e) => {
+                        const val = Math.max(exportStartMonth, parseInt(e.target.value, 10) || exportStartMonth);
+                        setExportEndMonth(val);
+                        if (val > totalSimulationMonths) {
+                          setTotalSimulationMonths(val);
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="col-span-2 flex items-center justify-end text-xs text-slate-500 self-end pb-1">
+                    <span>Export will generate <strong>{Math.max(0, exportEndMonth - exportStartMonth + 1)} rows</strong> of month-by-month financial ledger.</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 2: KIS KIS MONTH ME REFINANCE KARNA HAI */}
+              <div className="bg-amber-50/50 border border-amber-200 rounded-2xl p-4 sm:p-5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
+                      <Sparkles className="h-4 w-4 text-amber-600" />
+                      2. Kis Kis Month Me Refinance Karna Hai? (Refinance Schedule)
+                    </h4>
+                    <p className="text-xs text-amber-800/80 mt-0.5">
+                      Jin mahino me ₹80,000 ka renewal loan apply karna hai unhe select karein:
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2.5 py-1 bg-amber-100 text-amber-900 font-extrabold text-xs rounded-xl border border-amber-300">
+                      {exportRefinanceMonths.length} Months Active
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Presets for Refinance Months */}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-[11px] font-bold text-amber-800/70 mr-1">Quick Sets:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportRefinanceMonths(configuredRefinanceMonths.length > 0 ? [...configuredRefinanceMonths] : [16]);
+                    }}
+                    className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 font-bold text-xs rounded-lg border border-amber-300 transition"
+                  >
+                    Use Active Settings ({configuredRefinanceMonths.map((m) => `M${m}`).join(', ') || 'None'})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // 4-month cycle from month 16 onwards up to exportEndMonth
+                      const cycle: number[] = [];
+                      for (let m = 16; m <= exportEndMonth; m += 4) {
+                        cycle.push(m);
+                      }
+                      setExportRefinanceMonths(cycle);
+                    }}
+                    className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 font-bold text-xs rounded-lg border border-amber-300 transition"
+                  >
+                    Every 4 Months (M16, M20, M24...)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Months 16, 17, 18, 19, 20
+                      const consecutive: number[] = [16, 17, 18, 19, 20].filter((m) => m <= exportEndMonth);
+                      setExportRefinanceMonths(consecutive);
+                    }}
+                    className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 font-bold text-xs rounded-lg border border-amber-300 transition"
+                  >
+                    Consecutive M16 to M20
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExportRefinanceMonths([])}
+                    className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-700 font-bold text-xs rounded-lg border border-rose-200 transition"
+                  >
+                    Clear All (No Refinance)
+                  </button>
+                </div>
+
+                {/* Interactive Clickable Month Chips */}
+                <div className="pt-2">
+                  <p className="text-[11px] font-bold text-amber-900 mb-2">
+                    Click on any month to turn Refinancing ON or OFF for the export:
+                  </p>
+                  <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-1">
+                    {Array.from({ length: Math.max(1, exportEndMonth - 15) }, (_, i) => i + 16).map((m) => {
+                      const isIncluded = exportRefinanceMonths.includes(m);
+                      const assignedCount = monthlyBorrowersMap[m]?.length || 8;
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => {
+                            setExportRefinanceMonths((prev) =>
+                              prev.includes(m) ? prev.filter((item) => item !== m) : [...prev, m].sort((a, b) => a - b)
+                            );
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition ${
+                            isIncluded
+                              ? 'bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-400'
+                              : 'bg-white hover:bg-amber-100/80 text-slate-600 border border-amber-200 font-medium'
+                          }`}
+                        >
+                          <span>{isIncluded ? '✓' : '+'}</span>
+                          <span>Month {m}</span>
+                          <span className={`text-[10px] px-1 py-0.2 rounded font-bold ${
+                            isIncluded ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {assignedCount}P
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Add Custom Month Input */}
+                <div className="flex items-center gap-2 pt-2 border-t border-amber-200/70">
+                  <span className="text-xs font-bold text-amber-900 whitespace-nowrap">Add Custom Month:</span>
+                  <input
+                    type="number"
+                    placeholder="e.g. 25"
+                    min={1}
+                    max={120}
+                    value={customRefinanceInput}
+                    onChange={(e) => setCustomRefinanceInput(e.target.value)}
+                    className="w-24 px-2.5 py-1 text-xs font-bold bg-white border border-amber-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const m = parseInt(customRefinanceInput, 10);
+                      if (m && !exportRefinanceMonths.includes(m)) {
+                        setExportRefinanceMonths((prev) => [...prev, m].sort((a, b) => a - b));
+                        if (m > exportEndMonth) {
+                          setExportEndMonth(m);
+                        }
+                        setCustomRefinanceInput('');
+                      }
+                    }}
+                    className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-sm transition"
+                  >
+                    + Add Month
+                  </button>
+                </div>
+              </div>
+
+              {/* LIVE EXPORT SUMMARY HIGHLIGHTS */}
+              <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
+                    <Receipt className="h-4 w-4 text-indigo-400" />
+                    Export Portfolio Projection Highlights
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Calculated from your selected parameters
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Inflow Expected</span>
+                    <span className="text-base font-black text-blue-400">
+                      {formatCurrency(exportTotals.totalCollected, currency)}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">{rowsToExport.length} months collections</span>
+                  </div>
+
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Cash Disbursed</span>
+                    <span className="text-base font-black text-emerald-400">
+                      {formatCurrency(exportTotals.totalDisbursed, currency)}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">Net in-hand loans given</span>
+                  </div>
+
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Peak Market Cash</span>
+                    <span className="text-base font-black text-amber-300">
+                      {formatCurrency(exportTotals.peakMarketCash, currency)}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">Max active loan book</span>
+                  </div>
+
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Upfront Profit Earned</span>
+                    <span className="text-base font-black text-purple-300">
+                      +{formatCurrency(exportTotals.totalFees, currency)}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">File charges earned</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer with Action Buttons */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyTSV}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                  title="Copy data formatted for direct Excel paste"
+                >
+                  <Copy className="h-4 w-4 text-slate-500" />
+                  <span>{copySuccess ? '✓ Copied to Clipboard!' : 'Copy for Excel'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                  title="Print or Save PDF"
+                >
+                  <Printer className="h-4 w-4 text-slate-500" />
+                  <span>Print / Save PDF</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsExportModalOpen(false)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition active:scale-95"
+                >
+                  <Download className="h-4 w-4 stroke-[2.5]" />
+                  <span>Download Excel / CSV (.csv)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Month Snapshot Metrics (4 Cards) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Metric 1: Monthly EMI Collection */}
@@ -1559,6 +2158,16 @@ export default function ViewModelPage() {
               <Sparkles className="h-3 w-3" />
               <span>Refinance: {configuredRefinanceMonths.map((m) => `M${m}`).join(', ')}</span>
             </span>
+
+            <button
+              type="button"
+              onClick={handleOpenExportModal}
+              className="flex items-center gap-1.5 text-white font-black bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg shadow-sm transition active:scale-95 text-xs"
+              title="Export Ledger Data"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export Table</span>
+            </button>
           </div>
         </div>
 
