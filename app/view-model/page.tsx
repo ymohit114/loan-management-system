@@ -850,6 +850,7 @@ export default function ViewModelPage() {
               </div>
               <div className="flex items-center gap-1.5 mt-1">
                 <button
+                  type="button"
                   onClick={() => handleSetCountForActiveMonth(activeSelectedBorrowerIds.length - 1)}
                   className="h-7 w-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
                 >
@@ -858,17 +859,36 @@ export default function ViewModelPage() {
                 <input
                   type="number"
                   min="0"
-                  max="43"
+                  max={ALL_BORROWERS.length}
                   value={activeSelectedBorrowerIds.length}
                   onChange={(e) => handleSetCountForActiveMonth(parseInt(e.target.value, 10) || 0)}
                   className="w-full text-center font-black text-slate-900 text-base border border-slate-200 rounded-lg py-0.5 focus:ring-2 focus:ring-amber-500 outline-none"
                 />
                 <button
+                  type="button"
                   onClick={() => handleSetCountForActiveMonth(activeSelectedBorrowerIds.length + 1)}
                   className="h-7 w-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold transition"
                 >
                   <Plus className="h-3 w-3" />
                 </button>
+              </div>
+
+              {/* Quick Count Presets */}
+              <div className="grid grid-cols-4 gap-1 pt-1">
+                {[5, 8, 10, 12].map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => handleSetCountForActiveMonth(num)}
+                    className={`py-0.5 rounded-md text-[10px] font-black transition ${
+                      activeSelectedBorrowerIds.length === num
+                        ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {num} P
+                  </button>
+                ))}
               </div>
               
               <button
@@ -1169,7 +1189,7 @@ export default function ViewModelPage() {
                   <span>Select Borrowers for Month {activeConfigMonth} Refinancing</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Initial 43 customers me se choose karein. Kisi doosre month me renew ho chuke customers locked dikhenge.
+                  Portfolio ke sabhi verified customers me se choose karein. Kisi doosre month me renew ho chuke customers locked dikhenge.
                 </p>
               </div>
               <button

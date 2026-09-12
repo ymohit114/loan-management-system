@@ -55,22 +55,44 @@ export const BASE_43_BORROWERS: BorrowerProfile[] = [
 ];
 
 // Dynamically generated extended pool for long-horizon simulations (60, 120 months)
+const FIRST_NAMES = [
+  'Vikram', 'Sangeeta', 'Prakash', 'Anita', 'Kailash', 'Sunil', 'Reena', 'Lalit', 'Pooja', 'Rakesh',
+  'Deepak', 'Suman', 'Govind', 'Meenakshi', 'Arun', 'Kiran', 'Hemant', 'Bhavna', 'Naveen', 'Shalini',
+  'Dinesh', 'Geetanjali', 'Suraj', 'Vimla', 'Tarun', 'Rashmi', 'Rajendra', 'Manish', 'Kusum', 'Bhagwan',
+  'Anand', 'Preeti', 'Virendra', 'Mamta', 'Gopal', 'Urmila', 'Chandra', 'Santosh', 'Kamlesh', 'Roshni',
+];
+
+const LAST_NAMES = [
+  'Rathore', 'Soni', 'Meena', 'Rawat', 'Jain', 'Verma', 'Gupta', 'Sharma', 'Tiwari', 'Yadav',
+  'Joshi', 'Choudhary', 'Prajapat', 'Sen', 'Saxena', 'Malviya', 'Saini', 'Bunkar', 'Gour', 'Tomar',
+  'Vishwakarma', 'Baghel', 'Kishore', 'Dubey', 'Patel', 'Pandey', 'Mishra', 'Chauhan', 'Roy', 'Thakur',
+];
+
+const AREAS = [
+  'Shastri Circle', 'New Sanganer Rd', 'Tonk Phatak', 'Mansarovar Sec 7', 'Ajmer Road',
+  'Khatipura', 'Jhotwara', 'C-Scheme', 'Vidhyadhar Nagar', 'Malviya Industrial Area',
+  'Raja Park Gali 4', 'Civil Lines', 'Sodala Market', 'Bapu Nagar', 'Pratap Nagar'
+];
+
 export const ALL_BORROWERS: BorrowerProfile[] = [
   ...BASE_43_BORROWERS,
   ...Array.from({ length: 157 }, (_, i) => {
     const id = 44 + i;
-    const names = ['Vikram Rathore', 'Sangeeta Soni', 'Prakash Meena', 'Anita Rawat', 'Kailash Jain', 'Sunil Verma', 'Reena Gupta', 'Lalit Sharma', 'Pooja Tiwari', 'Rakesh Yadav'];
-    const areas = ['Shastri Circle', 'New Sanganer Rd', 'Tonk Phatak', 'Mansarovar Sec 7', 'Ajmer Road', 'Khatipura', 'Jhotwara', 'C-Scheme'];
-    const name = `${names[i % names.length]} (${id})`;
-    const area = areas[i % areas.length];
+    const firstName = FIRST_NAMES[i % FIRST_NAMES.length];
+    const lastName = LAST_NAMES[(i * 7 + 3) % LAST_NAMES.length];
+    const area = AREAS[i % AREAS.length];
+    const guarantorFirstName = FIRST_NAMES[(i + 5) % FIRST_NAMES.length];
+    const relations = ['Brother', 'Spouse', 'Father', 'Uncle', 'Friend'];
+    const relation = relations[i % relations.length];
+
     return {
       id,
-      name,
+      name: `${firstName} ${lastName}`,
       phone: `+91 98110 ${String(11000 + id).slice(-5)}`,
       area,
-      idType: 'Aadhaar',
+      idType: i % 3 === 0 ? 'PAN Card' : i % 3 === 1 ? 'Voter ID' : 'Aadhaar',
       idNum: `4123 8812 ${String(1000 + id).slice(-4)}`,
-      guarantor: `Guarantor for #${id}`,
+      guarantor: `${guarantorFirstName} ${lastName} (${relation})`,
     };
   }),
 ];
