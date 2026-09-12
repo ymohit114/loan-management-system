@@ -12,7 +12,8 @@ import {
   Settings as SettingsIcon,
   CreditCard,
   ShieldCheck,
-  ChevronRight
+  ChevronRight,
+  Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -56,6 +57,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       icon: AlertCircle,
       active: pathname.startsWith('/collections'),
       badge: 'Radar',
+    },
+    {
+      label: 'View Model (Demo)',
+      href: '/view-model',
+      icon: Sparkles,
+      active: pathname.startsWith('/view-model'),
+      badge: 'Pitch',
     },
     {
       label: 'Settings',

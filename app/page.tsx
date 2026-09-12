@@ -18,7 +18,9 @@ import {
   ChevronRight,
   ShieldAlert,
   Search,
-  Wallet
+  Wallet,
+  Sparkles,
+  ArrowRight
 } from 'lucide-react';
 import { DashboardStats, Payment, Settings, ScheduleItem } from '@/lib/types';
 import { formatCurrency, formatDate, generateWhatsAppReminderUrl } from '@/lib/utils';
@@ -97,6 +99,34 @@ export default function DashboardPage() {
             <span>Disburse Loan</span>
           </Link>
         </div>
+      </div>
+
+      {/* Investor View Model & Reinvestment Demo Card */}
+      <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 rounded-3xl text-white shadow-lg border border-indigo-500/30 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="h-12 w-12 rounded-2xl bg-indigo-500/20 border border-indigo-400/40 text-indigo-300 flex items-center justify-center shrink-0 shadow-inner">
+            <Sparkles className="h-6 w-6 text-amber-300 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-sm sm:text-base text-white">Investor View Model: 1-Month Stepper Simulator</span>
+              <span className="text-[10px] font-extrabold bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                Live Pitch Demo
+              </span>
+            </div>
+            <p className="text-xs text-indigo-200 mt-1">
+              Date ko 1-1 mahina aage badhayein: Har mahine ki ₹4,050 EMI collection se turant naye loans pass honge aur portfolio multiply hoga.
+            </p>
+          </div>
+        </div>
+
+        <Link
+          href="/view-model"
+          className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-950/50 shrink-0 transition active:scale-95 w-full md:w-auto"
+        >
+          <span>Open Interactive View Model</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
       </div>
 
       {/* Capital Disbursal & File Charge Breakdown Banner */}
