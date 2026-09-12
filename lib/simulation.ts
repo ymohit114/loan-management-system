@@ -37,12 +37,17 @@ export interface SimulationMonthData {
   refinanceIsDeficit?: boolean;
   refinanceDeficitAmount?: number;
   refinanceMaxAffordable?: number;
+  refinanceMaxSanctioned?: number;
+  refinanceMaxCashOutflow?: number;
+  refinanceSanctionedTotal?: number;
+  refinancePotentialMaxAffordable?: number;
   refinanceFileChargesTotal?: number;
   refinanceOldSettledTotal?: number;
 }
 
 export interface MonthRefinanceConfig {
-  count: number;
+  count?: number;
+  autoMax?: boolean;
   borrowerIds?: number[];
   sanctioned?: number;
   fileCharge?: number;
@@ -68,6 +73,9 @@ export interface SimulationConfig {
   refinanceFileCharge?: number;
   refinanceMonthlyEmi?: number;
   refinanceTenureMonths?: number;
+
+  // Global Auto-Fix to Max Affordable Capacity
+  autoMaxRefinance?: boolean;
 
   // Multi-Month Refinancing Map (Keyed by Month number e.g. 16, 17, 18...)
   monthlyRefinances?: Record<number, MonthRefinanceConfig>;
@@ -172,77 +180,74 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
     let newDisbursedInHand = 0;
     let newFileChargesEarned = 0;
 
-    // Check if this month has a refinancing event configured
+    // Calculate refinancing metrics and potential capacity for month m
     const currentMonthRefinance = refinanceEnabled ? monthlyRefinancesMap[m] : undefined;
-    if (currentMonthRefinance && currentMonthRefinance.count > 0) {
+    refSanctionedPerPerson = currentMonthRefinance?.sanctioned ?? refinanceSanctioned;
+    refFileChargePerPerson = currentMonthRefinance?.fileCharge ?? refinanceFileCharge;
+    const refEmi = currentMonthRefinance?.monthlyEmi ?? refinanceMonthlyEmi;
+    const refTenure = currentMonthRefinance?.tenureMonths ?? refinanceTenureMonths;
+
+    // Remaining EMIs for the initial base cohort at Month m
+    refOldEmisRemaining = Math.max(0, tenureMonths - m);
+    refOldSettledPerPerson = refOldEmisRemaining * monthlyEmi;
+    refNetInHandPerPerson = refSanctionedPerPerson - refFileChargePerPerson - refOldSettledPerPerson;
+
+    // How many borrowers can the current cash pool afford in month m?
+    refMaxAffordable = refNetInHandPerPerson > 0 ? Math.floor(pool / refNetInHandPerPerson) : 0;
+    const potentialMaxAffordable = refMaxAffordable;
+
+    // Remaining initial borrowers who have not been refinanced yet
+    const initialCohort = cohorts.find((c) => c.isInitial);
+    const initialAvailable = initialCohort ? initialCohort.count : 0;
+
+    const shouldAutoMax = currentMonthRefinance?.autoMax ?? config?.autoMaxRefinance ?? false;
+    const isConfiguredThisMonth = currentMonthRefinance && (
+      currentMonthRefinance.autoMax || 
+      config?.autoMaxRefinance || 
+      (currentMonthRefinance.count !== undefined && currentMonthRefinance.count > 0)
+    );
+
+    let actualRefBorrowers = 0;
+
+    if (refinanceEnabled && isConfiguredThisMonth) {
       refinanceTriggered = true;
-      refBorrowers = currentMonthRefinance.count;
-      refSanctionedPerPerson = currentMonthRefinance.sanctioned ?? refinanceSanctioned;
-      refFileChargePerPerson = currentMonthRefinance.fileCharge ?? refinanceFileCharge;
-      const refEmi = currentMonthRefinance.monthlyEmi ?? refinanceMonthlyEmi;
-      const refTenure = currentMonthRefinance.tenureMonths ?? refinanceTenureMonths;
 
-      // Calculate remaining EMIs for the initial base cohort at Month m
-      // e.g. At Month 16: paid 16 EMIs, remaining = 20 - 16 = 4 EMIs (4 * 4050 = 16,200)
-      // e.g. At Month 17: paid 17 EMIs, remaining = 20 - 17 = 3 EMIs (3 * 4050 = 12,150)
-      // e.g. At Month 18: paid 18 EMIs, remaining = 20 - 18 = 2 EMIs (2 * 4050 = 8,100)
-      refOldEmisRemaining = Math.max(0, tenureMonths - m);
-      refOldSettledPerPerson = refOldEmisRemaining * monthlyEmi;
-      refNetInHandPerPerson = refSanctionedPerPerson - refFileChargePerPerson - refOldSettledPerPerson;
+      // If Auto-Max is requested, automatically set to maximum safe affordable count
+      if (shouldAutoMax) {
+        refBorrowers = Math.min(initialAvailable, refMaxAffordable);
+      } else {
+        refBorrowers = currentMonthRefinance?.count ?? Math.min(initialAvailable, refMaxAffordable);
+      }
+
       refTotalNetRequired = refBorrowers * refNetInHandPerPerson;
-
-      refMaxAffordable = refNetInHandPerPerson > 0 ? Math.floor(pool / refNetInHandPerPerson) : 0;
       refIsDeficit = refTotalNetRequired > pool;
       refDeficitAmount = Math.max(0, refTotalNetRequired - pool);
 
-      refFileChargesTotal = refBorrowers * refFileChargePerPerson;
-      refOldSettledTotal = refBorrowers * refOldSettledPerPerson;
+      // Actual borrowers that get disbursed (cannot exceed affordable limit)
+      actualRefBorrowers = !refIsDeficit ? refBorrowers : Math.min(refBorrowers, refMaxAffordable);
 
-      if (!refIsDeficit) {
-        // Disburse refinancing loans
-        pool -= refTotalNetRequired;
-        newDisbursedInHand += refTotalNetRequired;
-        newFileChargesEarned += refFileChargesTotal;
-        cumulativeDisbursed += refTotalNetRequired;
+      if (actualRefBorrowers > 0) {
+        const actualNetRequired = actualRefBorrowers * refNetInHandPerPerson;
+        pool -= actualNetRequired;
+        newDisbursedInHand += actualNetRequired;
+        const actualFees = actualRefBorrowers * refFileChargePerPerson;
+        newFileChargesEarned += actualFees;
+        cumulativeDisbursed += actualNetRequired;
 
-        // Deduct refinanced borrowers from initial cohort
-        const initialCohort = cohorts.find((c) => c.isInitial);
+        refFileChargesTotal = actualFees;
+        refOldSettledTotal = actualRefBorrowers * refOldSettledPerPerson;
+
         if (initialCohort) {
-          initialCohort.count = Math.max(0, initialCohort.count - refBorrowers);
+          initialCohort.count = Math.max(0, initialCohort.count - actualRefBorrowers);
         }
 
-        // Add refinanced cohort (starts paying next month)
         cohorts.push({
-          count: refBorrowers,
+          count: actualRefBorrowers,
           monthsLeft: refTenure,
           emi: refEmi,
           principal: refSanctionedPerPerson,
           isInitial: false,
         });
-      } else {
-        // In deficit scenario: disburse up to maxAffordable
-        const affordableCount = Math.min(refBorrowers, refMaxAffordable);
-        if (affordableCount > 0) {
-          const disbursed = affordableCount * refNetInHandPerPerson;
-          pool -= disbursed;
-          newDisbursedInHand += disbursed;
-          const fee = affordableCount * refFileChargePerPerson;
-          newFileChargesEarned += fee;
-          cumulativeDisbursed += disbursed;
-
-          const initialCohort = cohorts.find((c) => c.isInitial);
-          if (initialCohort) {
-            initialCohort.count = Math.max(0, initialCohort.count - affordableCount);
-          }
-
-          cohorts.push({
-            count: affordableCount,
-            monthsLeft: refTenure,
-            emi: refEmi,
-            principal: refSanctionedPerPerson,
-            isInitial: false,
-          });
-        }
       }
     }
 
@@ -305,9 +310,6 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
     const activeCapitalDeployed = cohorts.reduce((acc, c) => acc + c.count * c.principal, 0);
 
     // Repayment value injected into the market this month
-    const actualRefBorrowers = refinanceTriggered 
-      ? (!refIsDeficit ? refBorrowers : Math.min(refBorrowers, refMaxAffordable)) 
-      : 0;
     const refMarketEmi = currentMonthRefinance?.monthlyEmi ?? refinanceMonthlyEmi;
     const refMarketTenure = currentMonthRefinance?.tenureMonths ?? refinanceTenureMonths;
     const refMarketValue = actualRefBorrowers * refMarketEmi * refMarketTenure;
@@ -347,7 +349,7 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
       newLoansMarketBreakdown,
       // Refinance data
       refinanceTriggered,
-      refinanceBorrowers: refBorrowers,
+      refinanceBorrowers: actualRefBorrowers,
       refinanceSanctionedPerPerson: refSanctionedPerPerson,
       refinanceFileChargePerPerson: refFileChargePerPerson,
       refinanceOldEmisRemaining: refOldEmisRemaining,
@@ -357,6 +359,10 @@ export function generateSimulationData(config?: SimulationConfig): SimulationMon
       refinanceIsDeficit: refIsDeficit,
       refinanceDeficitAmount: refDeficitAmount,
       refinanceMaxAffordable: refMaxAffordable,
+      refinanceMaxSanctioned: refMaxAffordable * refSanctionedPerPerson,
+      refinanceMaxCashOutflow: refMaxAffordable * refNetInHandPerPerson,
+      refinanceSanctionedTotal: actualRefBorrowers * refSanctionedPerPerson,
+      refinancePotentialMaxAffordable: potentialMaxAffordable,
       refinanceFileChargesTotal: refFileChargesTotal,
       refinanceOldSettledTotal: refOldSettledTotal,
     });

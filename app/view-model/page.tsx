@@ -84,6 +84,7 @@ export default function ViewModelPage() {
   const [exportStartMonth, setExportStartMonth] = useState(1);
   const [exportEndMonth, setExportEndMonth] = useState(30);
   const [exportRefinanceMonths, setExportRefinanceMonths] = useState<number[]>([16]);
+  const [exportAutoMax, setExportAutoMax] = useState(true); // Auto-fix to max capacity by default!
   const [customRefinanceInput, setCustomRefinanceInput] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
 
@@ -162,8 +163,8 @@ export default function ViewModelPage() {
     }));
   };
 
-  // Enable/Add refinancing for a specific month
-  const handleEnableMonthRefinance = (m: number, count: number = 8) => {
+  // Enable/Add refinancing for a specific month (defaults to auto-calculated max safe count)
+  const handleEnableMonthRefinance = (m: number, count?: number) => {
     const assignedElsewhere = new Set<number>();
     Object.entries(monthlyBorrowersMap).forEach(([mStr, ids]) => {
       if (parseInt(mStr, 10) !== m) {
@@ -172,7 +173,10 @@ export default function ViewModelPage() {
     });
 
     const available = ALL_BORROWERS.filter((b) => !assignedElsewhere.has(b.id));
-    const chosen = available.slice(0, count).map((b) => b.id);
+    const monthData = simulationData[m - 1];
+    const maxSafe = monthData ? (monthData.refinanceMaxAffordable ?? monthData.refinancePotentialMaxAffordable ?? 3) : 3;
+    const targetCount = count !== undefined ? count : Math.min(available.length, maxSafe > 0 ? maxSafe : 8);
+    const chosen = available.slice(0, targetCount).map((b) => b.id);
     setMonthlyBorrowersMap((prev) => ({
       ...prev,
       [m]: chosen,
@@ -333,6 +337,7 @@ export default function ViewModelPage() {
       .map(Number)
       .filter((m) => monthlyBorrowersMap[m] && monthlyBorrowersMap[m].length > 0);
     setExportRefinanceMonths(activeMonths.length > 0 ? activeMonths : [16]);
+    setExportAutoMax(true); // Default to Auto-Max so it auto-fixes!
     setExportEndMonth(Math.min(totalSimulationMonths, Math.max(30, currentMonthIndex)));
     setIsExportModalOpen(true);
   };
@@ -343,9 +348,9 @@ export default function ViewModelPage() {
     const monthlyRefinances: Record<number, MonthRefinanceConfig> = {};
     exportRefinanceMonths.forEach((m) => {
       const borrowers = monthlyBorrowersMap[m] || [];
-      const count = borrowers.length > 0 ? borrowers.length : 8;
       monthlyRefinances[m] = {
-        count,
+        autoMax: exportAutoMax,
+        count: exportAutoMax ? undefined : (borrowers.length > 0 ? borrowers.length : 8),
         borrowerIds: borrowers,
         sanctioned: refinanceSanctioned,
         fileCharge: refinanceFileCharge,
@@ -364,11 +369,13 @@ export default function ViewModelPage() {
       totalMonths: targetTotalMonths,
       reinvestFileCharges,
       refinanceEnabled: exportRefinanceMonths.length > 0,
+      autoMaxRefinance: exportAutoMax,
       monthlyRefinances,
     });
   }, [
     isExportModalOpen,
     exportRefinanceMonths,
+    exportAutoMax,
     exportEndMonth,
     monthlyBorrowersMap,
     refinanceSanctioned,
@@ -1236,14 +1243,25 @@ export default function ViewModelPage() {
                 ))}
               </div>
               
-              <button
-                type="button"
-                onClick={() => setIsBorrowerModalOpen(true)}
-                className="w-full mt-1.5 px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 shadow-sm transition active:scale-95"
-              >
-                <Users className="h-3 w-3" />
-                <span>Pick ({activeSelectedBorrowerIds.length})</span>
-              </button>
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleSelectNextAvailableForActiveMonth(activeMaxAffordableBorrowers)}
+                  className="flex-1 px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-950 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 border border-amber-300 transition active:scale-95"
+                  title={`Auto-Fix to Month ${activeConfigMonth} Max Safe Limit (${activeMaxAffordableBorrowers} Borrowers)`}
+                >
+                  <Sparkles className="h-3 w-3 text-amber-600" />
+                  <span>Auto-Fix ({activeMaxAffordableBorrowers}P)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsBorrowerModalOpen(true)}
+                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 shadow-sm transition active:scale-95"
+                >
+                  <Users className="h-3 w-3" />
+                  <span>Pick ({activeSelectedBorrowerIds.length})</span>
+                </button>
+              </div>
             </div>
 
             {/* Input 3: New Sanctioned Loan */}
@@ -1559,12 +1577,20 @@ export default function ViewModelPage() {
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => handleSelectNextAvailableForActiveMonth(activeMaxAffordableBorrowers)}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-sm transition whitespace-nowrap flex items-center gap-1.5"
+                    title={`Auto-select maximum safe borrowers that fit Month ${activeConfigMonth} pool`}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Auto-Fix Max Safe ({activeMaxAffordableBorrowers}P)</span>
+                  </button>
                   <button
                     onClick={() => handleSelectNextAvailableForActiveMonth(8)}
                     className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-sm transition whitespace-nowrap"
                   >
-                    Select Next 8 Available
+                    Select 8 Available
                   </button>
                   <button
                     onClick={() => {
@@ -1578,13 +1604,13 @@ export default function ViewModelPage() {
               </div>
 
               {/* Status Alert Inside Modal */}
-              <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2 ${
+              <div className={`p-2.5 rounded-xl text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
                 activeIsBudgetExceeded 
                   ? 'bg-rose-100 text-rose-800 border border-rose-300' 
                   : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
               }`}>
                 <span>Selected: {activeSelectedBorrowerIds.length} Borrowers ({formatCurrency(activeTotalRefinanceCashRequired, currency)} in-hand cash)</span>
-                <span>Max Affordable in M{activeConfigMonth}: {activeMaxAffordableBorrowers} Borrowers</span>
+                <span>Max Affordable in M{activeConfigMonth}: <strong>{activeMaxAffordableBorrowers} Borrowers</strong> (Max Sanctioned: <strong>{formatCurrency(activeMaxAffordableBorrowers * refinanceSanctioned, currency)}</strong>)</span>
               </div>
             </div>
 
@@ -1821,8 +1847,8 @@ export default function ViewModelPage() {
               </div>
 
               {/* SECTION 2: KIS KIS MONTH ME REFINANCE KARNA HAI */}
-              <div className="bg-amber-50/50 border border-amber-200 rounded-2xl p-4 sm:p-5 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="bg-amber-50/50 border border-amber-200 rounded-2xl p-4 sm:p-5 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
                       <Sparkles className="h-4 w-4 text-amber-600" />
@@ -1832,12 +1858,44 @@ export default function ViewModelPage() {
                       Jin mahino me ₹80,000 ka renewal loan apply karna hai unhe select karein:
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5">
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Auto-Fix Max Capacity Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setExportAutoMax(!exportAutoMax)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-sm ${
+                        exportAutoMax
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                      }`}
+                      title="Automatically calculate and set the maximum affordable refinance count & amount without deficit"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                      <span>⚡ Auto-Fix Max Capacity: {exportAutoMax ? 'ON (Self-Balancing)' : 'OFF (Manual)'}</span>
+                    </button>
+
                     <span className="px-2.5 py-1 bg-amber-100 text-amber-900 font-extrabold text-xs rounded-xl border border-amber-300">
                       {exportRefinanceMonths.length} Months Active
                     </span>
                   </div>
                 </div>
+
+                {/* Auto-Fix Banner Alert */}
+                {exportAutoMax && (
+                  <div className="p-3 bg-gradient-to-r from-emerald-50 via-amber-50 to-emerald-50 border border-emerald-300/80 rounded-xl text-xs text-slate-800 flex items-start gap-2.5 shadow-sm">
+                    <span className="text-base leading-none">⚡</span>
+                    <div className="flex-1">
+                      <p className="font-black text-emerald-950 flex items-center gap-1">
+                        <span>Auto-Calculated Max Refinance Capacity Active</span>
+                        <span className="px-1.5 py-0.2 bg-emerald-200 text-emerald-900 text-[10px] rounded font-bold">Zero Deficit Guarantee</span>
+                      </p>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        Har selected month me available bank balance (cash pool) ke mutabiq <strong>maximum affordable borrowers</strong> aur <strong>maximum sanctioned loan amount</strong> apne aap auto-calculate hokar set ho raha hai.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Quick Presets for Refinance Months */}
                 <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1888,15 +1946,21 @@ export default function ViewModelPage() {
                   </button>
                 </div>
 
-                {/* Interactive Clickable Month Chips */}
+                {/* Interactive Clickable Month Chips with Live Max Capacity */}
                 <div className="pt-2">
                   <p className="text-[11px] font-bold text-amber-900 mb-2">
-                    Click on any month to turn Refinancing ON or OFF for the export:
+                    Click on any month to turn Refinancing ON or OFF (chips auto-display max loan capacity):
                   </p>
-                  <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-1">
+                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-1">
                     {Array.from({ length: Math.max(1, exportEndMonth - 15) }, (_, i) => i + 16).map((m) => {
                       const isIncluded = exportRefinanceMonths.includes(m);
-                      const assignedCount = monthlyBorrowersMap[m]?.length || 8;
+                      const rowData = exportSimulationData[m - 1];
+                      const maxSafe = rowData ? (rowData.refinanceMaxAffordable ?? rowData.refinancePotentialMaxAffordable ?? 0) : 0;
+                      const activeBorrowersCount = exportAutoMax 
+                        ? (rowData?.refinanceBorrowers ?? maxSafe) 
+                        : (monthlyBorrowersMap[m]?.length ?? maxSafe);
+                      const maxSanctionedAmt = (exportAutoMax ? activeBorrowersCount : maxSafe) * refinanceSanctioned;
+
                       return (
                         <button
                           key={m}
@@ -1909,21 +1973,77 @@ export default function ViewModelPage() {
                           className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition ${
                             isIncluded
                               ? 'bg-amber-500 text-slate-950 font-black shadow-sm ring-2 ring-amber-400'
-                              : 'bg-white hover:bg-amber-100/80 text-slate-600 border border-amber-200 font-medium'
+                              : 'bg-white hover:bg-amber-100/80 text-slate-700 border border-amber-200 font-medium'
                           }`}
                         >
                           <span>{isIncluded ? '✓' : '+'}</span>
-                          <span>Month {m}</span>
-                          <span className={`text-[10px] px-1 py-0.2 rounded font-bold ${
-                            isIncluded ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-100 text-slate-500'
+                          <span className="font-extrabold">Month {m}</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${
+                            isIncluded 
+                              ? 'bg-slate-950/20 text-slate-950' 
+                              : 'bg-amber-100 text-amber-900 border border-amber-200'
                           }`}>
-                            {assignedCount}P
+                            {exportAutoMax ? `Max: ${activeBorrowersCount}P (₹${(maxSanctionedAmt / 100000).toFixed(1)}L)` : `${activeBorrowersCount}P`}
                           </span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
+
+                {/* Live Max Capacity & Limits Breakdown Card */}
+                {exportRefinanceMonths.length > 0 && (
+                  <div className="bg-white/95 border border-amber-200/90 rounded-2xl p-3.5 space-y-2.5 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-amber-950 flex items-center gap-1.5">
+                        <span>📊 Refinance Capacity & Cash Flow Limits (Auto-Calculated)</span>
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-semibold">
+                        Pool ke anusaar max limit
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                      {exportRefinanceMonths.map((m) => {
+                        const rowData = exportSimulationData[m - 1];
+                        if (!rowData) return null;
+                        const count = rowData.refinanceBorrowers ?? (rowData.refinanceMaxAffordable ?? 0);
+                        const sanctionedTotal = count * refinanceSanctioned;
+                        const netOutflow = count * (rowData.refinanceNetInHandPerPerson ?? 0);
+                        const feeIncome = count * (rowData.refinanceFileChargePerPerson ?? refinanceFileCharge);
+
+                        return (
+                          <div key={m} className="p-2.5 bg-amber-50/50 rounded-xl border border-amber-200/80 text-xs space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-black text-slate-900">Month {m}</span>
+                              <span className="px-1.5 py-0.5 bg-amber-200 text-amber-950 rounded text-[10px] font-black">
+                                {count} Borrowers
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-600 space-y-0.5 pt-0.5">
+                              <div className="flex justify-between">
+                                <span>Max Loan:</span>
+                                <strong className="text-slate-900">{formatCurrency(sanctionedTotal, currency)}</strong>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Cash Outflow:</span>
+                                <strong className="text-emerald-700">{formatCurrency(netOutflow, currency)}</strong>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Upfront Fee:</span>
+                                <strong className="text-purple-700">+{formatCurrency(feeIncome, currency)}</strong>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Bank Surplus:</span>
+                                <strong className="text-slate-900 font-mono">{formatCurrency(rowData.surplusRemaining, currency)}</strong>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Add Custom Month Input */}
                 <div className="flex items-center gap-2 pt-2 border-t border-amber-200/70">
